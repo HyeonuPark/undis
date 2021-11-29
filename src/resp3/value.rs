@@ -1,0 +1,202 @@
+use std::cmp::{Eq, Ord};
+use std::fmt;
+use std::hash::Hash;
+
+use bstr::BString;
+use indexmap::IndexMap;
+use serde::de;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Value {
+    Null,
+    Blob(BString),
+    Boolean(bool),
+    Number(i128),
+    Double(Double),
+    Array(Vec<Value>),
+    Map(IndexMap<BString, Value>),
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, PartialOrd)]
+pub struct Double(f64);
+
+impl Double {
+    /// # Panic
+    ///
+    /// Panics if the `num` is NaN
+    pub fn new(num: f64) -> Self {
+        assert!(!num.is_nan(), "RESP3 Double can't be NaN");
+        Double(num)
+    }
+
+    pub fn as_f64(self) -> f64 {
+        self.0
+    }
+}
+
+impl Eq for Double {}
+
+impl Ord for Double {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
+impl Hash for Double {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        if self.0 == 0.0 {
+            // -0.0 == 0.0
+            0.0f64.to_bits().hash(state);
+        } else {
+            self.0.to_bits().hash(state)
+        }
+    }
+}
+
+impl Default for Value {
+    fn default() -> Self {
+        Value::Null
+    }
+}
+
+impl<'de> de::Deserialize<'de> for Value {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct Visitor;
+
+        impl<'de> de::Visitor<'de> for Visitor {
+            type Value = Value;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("any valid RESP3 value")
+            }
+
+            fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(Value::Boolean(v))
+            }
+
+            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(Value::Number(v.into()))
+            }
+
+            fn visit_i128<E>(self, v: i128) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(Value::Number(v))
+            }
+
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(Value::Number(v.into()))
+            }
+
+            fn visit_u128<E>(self, v: u128) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(Value::Number(v.try_into().map_err(|_| {
+                    E::custom("number cannot be represented within the i128 range")
+                })?))
+            }
+
+            fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                if v.is_nan() {
+                    return Err(E::custom("NaN is not allowed"));
+                }
+
+                Ok(Value::Double(Double::new(v)))
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(Value::Blob(v.into()))
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(Value::Blob(v.into()))
+            }
+
+            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(Value::Blob(v.into()))
+            }
+
+            fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(Value::Blob(v.into()))
+            }
+
+            fn visit_unit<E>(self) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(Value::Null)
+            }
+
+            fn visit_none<E>(self) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(Value::Null)
+            }
+
+            fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                de::Deserialize::deserialize(deserializer)
+            }
+
+            fn visit_seq<A>(self, mut access: A) -> Result<Self::Value, A::Error>
+            where
+                A: de::SeqAccess<'de>,
+            {
+                let mut vec = Vec::new();
+
+                while let Some(elem) = access.next_element()? {
+                    vec.push(elem);
+                }
+
+                Ok(Value::Array(vec))
+            }
+
+            fn visit_map<A>(self, mut access: A) -> Result<Self::Value, A::Error>
+            where
+                A: de::MapAccess<'de>,
+            {
+                let mut map = IndexMap::new();
+
+                while let Some((key, value)) = access.next_entry()? {
+                    map.insert(key, value);
+                }
+
+                Ok(Value::Map(map))
+            }
+        }
+
+        deserializer.deserialize_any(Visitor)
+    }
+}
