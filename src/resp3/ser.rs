@@ -27,11 +27,12 @@ pub struct ArraySerializer<'a> {
 pub enum Error {
     #[error("custom: {0}")]
     Custom(String),
-    #[error("sending NaN is not supported")]
-    Nan,
-    // TODO: remove this variant
-    #[error("wow it failed")]
-    Misc,
+    #[error("depth limit reached")]
+    DepthLimit,
+    #[error("array length mismatch")]
+    ArrayLengthMismatch,
+    #[error("map-like data types are not supported")]
+    UnsupportedMapLikeTypes,
 }
 
 impl<'a> ClientSerializer<'a> {
@@ -41,7 +42,7 @@ impl<'a> ClientSerializer<'a> {
 
     fn array(self, len: Option<usize>) -> Result<ArraySerializer<'a>, Error> {
         match depth_limit() {
-            Some(limit) if limit <= self.depth => return Err(Error::Misc),
+            Some(limit) if limit <= self.depth => return Err(Error::DepthLimit),
             _ => {}
         }
 
@@ -74,8 +75,7 @@ impl<'a> ArraySerializer<'a> {
         self.count += 1;
 
         if self.len.map_or(false, |len| self.count > len) {
-            // too many children
-            return Err(Error::Misc);
+            return Err(Error::ArrayLengthMismatch);
         }
 
         Ok(ClientSerializer {
@@ -88,8 +88,7 @@ impl<'a> ArraySerializer<'a> {
         match self.len {
             Some(len) => {
                 if len != self.count {
-                    // invalid length specified
-                    return Err(Error::Misc);
+                    return Err(Error::ArrayLengthMismatch);
                 }
             }
             None if self.count <= 9 => {
@@ -119,9 +118,6 @@ macro_rules! serialize_int {
 macro_rules! serialize_float {
     ($($float:ident)*) => {paste!{$(
         fn [<serialize_ $float>](mut self, v: $float) -> Result<Self::Ok, Self::Error> {
-            if v.is_nan() {
-                return Err(Error::Nan);
-            }
             let mut buf = ryu::Buffer::new();
             self.put_bytes(buf.format(v).as_bytes());
             Ok(())
@@ -250,7 +246,7 @@ impl<'a> ser::Serializer for ClientSerializer<'a> {
     }
 
     fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
-        Err(Error::Misc)
+        Err(Error::UnsupportedMapLikeTypes)
     }
 
     fn serialize_struct(
@@ -258,7 +254,7 @@ impl<'a> ser::Serializer for ClientSerializer<'a> {
         _name: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeStruct, Self::Error> {
-        Err(Error::Misc)
+        Err(Error::UnsupportedMapLikeTypes)
     }
 
     fn serialize_struct_variant(
@@ -268,7 +264,7 @@ impl<'a> ser::Serializer for ClientSerializer<'a> {
         _variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
-        Err(Error::Misc)
+        Err(Error::UnsupportedMapLikeTypes)
     }
 }
 
@@ -430,7 +426,7 @@ impl<'a> ser::Serializer for ArraySerializer<'a> {
 
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
         match (self.len, len) {
-            (Some(len), Some(seq_len)) if len != seq_len => return Err(Error::Misc),
+            (Some(len), Some(seq_len)) if len != seq_len => return Err(Error::ArrayLengthMismatch),
             _ => {}
         }
 
@@ -439,8 +435,7 @@ impl<'a> ser::Serializer for ArraySerializer<'a> {
 
     fn serialize_tuple(self, tuple_len: usize) -> Result<Self::SerializeTuple, Self::Error> {
         if self.len.map_or(false, |len| len != tuple_len) {
-            // length mismatch
-            return Err(Error::Misc);
+            return Err(Error::ArrayLengthMismatch);
         }
 
         Ok(self)
@@ -466,7 +461,7 @@ impl<'a> ser::Serializer for ArraySerializer<'a> {
     }
 
     fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
-        Err(Error::Misc)
+        Err(Error::UnsupportedMapLikeTypes)
     }
 
     fn serialize_struct(
@@ -474,7 +469,7 @@ impl<'a> ser::Serializer for ArraySerializer<'a> {
         _name: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeStruct, Self::Error> {
-        Err(Error::Misc)
+        Err(Error::UnsupportedMapLikeTypes)
     }
 
     fn serialize_struct_variant(
@@ -484,7 +479,7 @@ impl<'a> ser::Serializer for ArraySerializer<'a> {
         _variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
-        Err(Error::Misc)
+        Err(Error::UnsupportedMapLikeTypes)
     }
 }
 
