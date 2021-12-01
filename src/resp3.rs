@@ -1,7 +1,7 @@
 use bytes::BufMut;
 
 pub mod de;
-pub mod ser;
+pub mod ser_cmd;
 pub mod token;
 pub mod value;
 
@@ -13,7 +13,7 @@ pub struct Reader {
 }
 
 #[derive(Debug)]
-pub struct ClientWriter {
+pub struct CommandWriter {
     buf: Vec<u8>,
 }
 
@@ -29,7 +29,7 @@ impl Reader {
     }
 
     /// # NOTE
-    /// Without `.clear_prev()` after the call this method will keep return same result
+    /// Without `.clear_prev()` after the call this method will keep return same message
     pub fn read(&mut self) -> Result<Option<token::Message<'_>>, token::Error> {
         Ok(Some(match self.tok.message() {
             Ok(msg) => msg,
@@ -57,14 +57,13 @@ impl<'a> token::Message<'a> {
     }
 }
 
-impl ClientWriter {
+impl CommandWriter {
     pub fn new() -> Self {
         Self { buf: Vec::new() }
     }
 
-    pub fn write<T: serde::Serialize>(&mut self, value: &T) -> Result<&[u8], ser::Error> {
-        self.buf.clear();
-        value.serialize(ser::ClientSerializer::new(&mut self.buf))?;
+    pub fn write<T: serde::Serialize>(&mut self, value: &T) -> Result<&[u8], ser_cmd::Error> {
+        value.serialize(ser_cmd::CommandSerializer::new(&mut self.buf))?;
         Ok(&self.buf)
     }
 }

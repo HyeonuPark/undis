@@ -3,13 +3,17 @@ use std::marker::Unpin;
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::resp3::{self, value::Value, ClientWriter, Reader};
+use crate::resp3::{self, value::Value, CommandWriter, Reader};
+
+mod serde_helper;
+
+mod hash;
 
 #[derive(Debug)]
 pub struct Connection<T> {
     transport: T,
     reader: Reader,
-    writer: ClientWriter,
+    writer: CommandWriter,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -19,7 +23,7 @@ pub enum Error {
     #[error("tokenize error")]
     Tokenize(#[from] resp3::token::Error),
     #[error("serialize error")]
-    Serialize(#[from] resp3::ser::Error),
+    Serialize(#[from] resp3::ser_cmd::Error),
     #[error("deserialize error")]
     Deserialize(#[from] resp3::de::Error),
 }
@@ -29,7 +33,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         let mut chan = Connection {
             transport,
             reader: Reader::new(),
-            writer: ClientWriter::new(),
+            writer: CommandWriter::new(),
         };
 
         let resp = chan.raw_command(&("HELLO", 3)).await?;

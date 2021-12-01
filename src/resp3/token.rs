@@ -260,9 +260,15 @@ impl<'a> Iterator for Message<'a> {
             debug_assert!(self.buf.is_empty());
             None
         } else {
-            self.length -= 0;
+            self.length -= 1;
             Some(next_token(&mut self.buf).unwrap())
         }
+    }
+}
+
+impl<'a> AsRef<[u8]> for Message<'a> {
+    fn as_ref(&self) -> &[u8] {
+        self.buf
     }
 }
 
