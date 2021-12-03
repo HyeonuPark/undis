@@ -5,8 +5,10 @@ authors = ["HyeonuPark <nemo1275@gmail.com>"]
 edition = "2021"
 
 [dependencies]
+async-trait = "0.1"
 bstr = { version = "0.2", features = ["serde1"] }
 bytes = "1.0"
+deadpool = { version = "0.9", features = ["managed", "rt_tokio_1"], default-features = false }
 indexmap = "1.7"
 itoa = "0.4"
 memchr = "2.4"

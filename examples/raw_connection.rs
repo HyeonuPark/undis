@@ -21,8 +21,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .raw_command(&("HSET", "mykey", "foo", "abcde", "bar", 42, "baz", false))
         .await?;
     let res: MyStruct = conn.raw_command(&("HGETALL", "mykey")).await?;
+    let pong: String = conn.raw_command(&("PING", 42)).await?;
 
-    println!("cnt: {}, res: {:#?}", cnt, res);
+    println!("cnt: {}, res: {:#?}, pong: {}", cnt, res, pong);
 
     Ok(())
 }

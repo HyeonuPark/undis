@@ -80,7 +80,7 @@ impl<'a, 'de> Deserializer<'a, 'de> {
                     self.consume(len)?;
                     continue;
                 }
-                Some(Token::Error(msg) | Token::BlobError(msg)) => {
+                Some(Token::SimpleError(msg) | Token::BlobError(msg)) => {
                     Err(Error::Remote(String::from_utf8_lossy(msg).into_owned()))
                 }
                 Some(Token::Simple(msg) | Token::Blob(Some(msg)) | Token::Verbatim(msg)) => {

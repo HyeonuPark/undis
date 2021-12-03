@@ -10,7 +10,7 @@ pub enum Token<'a> {
     Blob(Option<&'a [u8]>),
     BlobStream(&'a [u8]),
     Simple(&'a [u8]),
-    Error(&'a [u8]),
+    SimpleError(&'a [u8]),
     Number(i64),
     Null,
     Double(f64),
@@ -128,7 +128,7 @@ impl<'a> Token<'a> {
                 buf.put_slice(msg);
                 buf.put_slice(CRLF);
             }
-            Error(msg) => {
+            SimpleError(msg) => {
                 debug_assert!(
                     msg.iter().all(|&b| b != b'\r' && b != b'\n'),
                     "RESP Simple Error can't have \\r or \\n character"
@@ -235,9 +235,9 @@ impl<'a> Token<'a> {
         // push the protocol stack frame if needed
         match self {
             // scalars and empty sequences don't push any frame
-            Array(Some(0)) | Blob(Some(_)) | BlobStream(_) | Simple(_) | Error(_) | Number(_)
-            | Null | Double(_) | Boolean(_) | BlobError(_) | Verbatim(_) | Map(Some(0))
-            | Set(Some(0)) | Attribute(0) | Push(0) | BigNumber(_) | StreamEnd => {}
+            Array(Some(0)) | Blob(Some(_)) | BlobStream(_) | Simple(_) | SimpleError(_)
+            | Number(_) | Null | Double(_) | Boolean(_) | BlobError(_) | Verbatim(_)
+            | Map(Some(0)) | Set(Some(0)) | Attribute(0) | Push(0) | BigNumber(_) | StreamEnd => {}
             // finite sequences push their length
             Array(Some(len)) | Set(Some(len)) | Attribute(len) | Push(len) => {
                 stack.push(Some(*len))
@@ -382,7 +382,7 @@ fn next_token<'a>(buf: &mut &'a [u8]) -> Result<Token<'a>, Option<Error>> {
         ),
         BLOB_STREAM => BlobStream(parse_blob_like(buf)?),
         SIMPLE => Simple(until_crlf(buf)?),
-        ERROR => Error(until_crlf(buf)?),
+        ERROR => SimpleError(until_crlf(buf)?),
         NUMBER => Number({
             let msg = until_crlf(buf)?;
             parse_str(msg).ok_or(Error::ParseIntFailed)?

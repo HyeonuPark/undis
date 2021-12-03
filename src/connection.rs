@@ -3,11 +3,7 @@ use std::marker::Unpin;
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::resp3::{self, value::Value, CommandWriter, Reader};
-
-mod serde_helper;
-
-mod hash;
+use crate::resp3::{de, ser_cmd, token, value::Value, CommandWriter, Reader};
 
 #[derive(Debug)]
 pub struct Connection<T> {
@@ -21,11 +17,11 @@ pub enum Error {
     #[error("io error")]
     Io(#[from] std::io::Error),
     #[error("tokenize error")]
-    Tokenize(#[from] resp3::token::Error),
+    Tokenize(#[from] token::Error),
     #[error("serialize error")]
-    Serialize(#[from] resp3::ser_cmd::Error),
+    Serialize(#[from] ser_cmd::Error),
     #[error("deserialize error")]
-    Deserialize(#[from] resp3::de::Error),
+    Deserialize(#[from] de::Error),
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {

@@ -1,13 +1,12 @@
-use std::marker::Unpin;
-
 use serde::{de::DeserializeOwned, Serialize};
-use tokio::io::{AsyncRead, AsyncWrite};
+
+use crate::connector::Connector;
 
 use super::serde_helper::{get_struct_fields, EnsureMapLike, EnsureScalar, EnsureSequence};
-use super::{Connection, Error};
+use super::{Client, Error};
 
-impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
-    pub async fn hdel<K, F>(&mut self, key: &K, fields: &F) -> Result<usize, Error>
+impl<T: Connector> Client<T> {
+    pub async fn hdel<K, F>(&self, key: &K, fields: &F) -> Result<usize, Error>
     where
         K: Serialize + ?Sized,
         F: Serialize + ?Sized,
@@ -16,7 +15,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
             .await
     }
 
-    pub async fn hexists<K, F>(&mut self, key: &K, field: &F) -> Result<bool, Error>
+    pub async fn hexists<K, F>(&self, key: &K, field: &F) -> Result<bool, Error>
     where
         K: Serialize + ?Sized,
         F: Serialize + ?Sized,
@@ -25,7 +24,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
             .await
     }
 
-    pub async fn hget<K, F, R>(&mut self, key: &K, field: &F) -> Result<R, Error>
+    pub async fn hget<K, F, R>(&self, key: &K, field: &F) -> Result<R, Error>
     where
         K: Serialize + ?Sized,
         F: Serialize + ?Sized,
@@ -35,7 +34,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
             .await
     }
 
-    pub async fn hgetall<K, R>(&mut self, key: &K) -> Result<R, Error>
+    pub async fn hgetall<K, R>(&self, key: &K) -> Result<R, Error>
     where
         K: Serialize + ?Sized,
         R: DeserializeOwned,
@@ -43,7 +42,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         self.raw_command(&("HGETALL", EnsureScalar(key))).await
     }
 
-    pub async fn hincrby<K, F>(&mut self, key: &K, field: &F, increment: i64) -> Result<i64, Error>
+    pub async fn hincrby<K, F>(&self, key: &K, field: &F, increment: i64) -> Result<i64, Error>
     where
         K: Serialize + ?Sized,
         F: Serialize + ?Sized,
@@ -52,12 +51,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
             .await
     }
 
-    pub async fn hincrbyfloat<K, F>(
-        &mut self,
-        key: &K,
-        field: &F,
-        increment: f64,
-    ) -> Result<f64, Error>
+    pub async fn hincrbyfloat<K, F>(&self, key: &K, field: &F, increment: f64) -> Result<f64, Error>
     where
         K: Serialize + ?Sized,
         F: Serialize + ?Sized,
@@ -71,7 +65,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         .await
     }
 
-    pub async fn hkeys<K, R>(&mut self, key: &K) -> Result<R, Error>
+    pub async fn hkeys<K, R>(&self, key: &K) -> Result<R, Error>
     where
         K: Serialize + ?Sized,
         R: DeserializeOwned,
@@ -79,40 +73,33 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         self.raw_command(&("HKEYS", EnsureScalar(key))).await
     }
 
-    pub async fn hlen<K, R>(&mut self, key: &K) -> Result<usize, Error>
+    pub async fn hlen<K, R>(&self, key: &K) -> Result<usize, Error>
     where
         K: Serialize + ?Sized,
     {
         self.raw_command(&("HLEN", EnsureScalar(key))).await
     }
 
-    pub async fn hmget<K, F, R>(&mut self, key: &K, fields: &F) -> Result<R, Error>
-    where
-        K: Serialize + ?Sized,
-        F: Serialize + ?Sized,
-        R: DeserializeOwned,
-    {
-        self.raw_command(&("HMGET", EnsureScalar(key), EnsureSequence(fields)))
-            .await
-    }
-
-    pub async fn hmget_struct<K, R>(&mut self, key: &K) -> Result<R, Error>
+    pub async fn hmget<K, R>(&self, key: &K) -> Result<R, Error>
     where
         K: Serialize + ?Sized,
         R: DeserializeOwned,
     {
         let fields = get_struct_fields::<R>().ok_or_else(|| {
-            crate::resp3::ser_cmd::Error::Custom(
-                "hmget_struct can only return struct with named fields \
-                with `#[derive(serde::Deserialize)]` attribute"
-                    .into(),
+            super::ErrorKind::Connection(
+                crate::resp3::ser_cmd::Error::Custom(
+                    "hmget_struct can only return struct with named fields \
+                        with `#[derive(serde::Deserialize)]` attribute"
+                        .into(),
+                )
+                .into(),
             )
         })?;
         self.raw_command(&("HMGET", EnsureScalar(key), fields))
             .await
     }
 
-    pub async fn hrandfield<K, R>(&mut self, key: &K) -> Result<R, Error>
+    pub async fn hrandfield<K, R>(&self, key: &K) -> Result<R, Error>
     where
         K: Serialize + ?Sized,
         R: DeserializeOwned,
@@ -121,7 +108,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
     }
 
     pub async fn hrandfield_count<K, R>(
-        &mut self,
+        &self,
         key: &K,
         count: isize,
         withvalues: bool,
@@ -140,7 +127,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
     }
 
     pub async fn hscan<K, R>(
-        &mut self,
+        &self,
         key: &K,
         cursor: u64,
         match_pattern: Option<&str>,
@@ -160,7 +147,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         .await
     }
 
-    pub async fn hset<K, E>(&mut self, key: &K, entries: &E) -> Result<usize, Error>
+    pub async fn hset<K, E>(&self, key: &K, entries: &E) -> Result<usize, Error>
     where
         K: Serialize + ?Sized,
         E: Serialize + ?Sized,
@@ -169,7 +156,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
             .await
     }
 
-    pub async fn hsetnx<K, F, V>(&mut self, key: &K, field: &F, value: &V) -> Result<bool, Error>
+    pub async fn hsetnx<K, F, V>(&self, key: &K, field: &F, value: &V) -> Result<bool, Error>
     where
         K: Serialize + ?Sized,
         F: Serialize + ?Sized,
@@ -184,7 +171,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         .await
     }
 
-    pub async fn hstrlen<K, F, R>(&mut self, key: &K, field: &F) -> Result<usize, Error>
+    pub async fn hstrlen<K, F, R>(&self, key: &K, field: &F) -> Result<usize, Error>
     where
         K: Serialize + ?Sized,
         F: Serialize + ?Sized,
@@ -193,7 +180,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
             .await
     }
 
-    pub async fn hvals<K, R>(&mut self, key: &K) -> Result<R, Error>
+    pub async fn hvals<K, R>(&self, key: &K) -> Result<R, Error>
     where
         K: Serialize + ?Sized,
         R: DeserializeOwned,
