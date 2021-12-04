@@ -11,7 +11,10 @@ struct MyStruct {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let client = Client::builder(10).bind(([127, 0, 0, 1], 6379).into())?;
+    let (client, hello) = Client::builder(10)
+        .bind(([127, 0, 0, 1], 6379).into())
+        .await?;
+    println!("HELLO: {:?}", hello);
 
     let cnt = client
         .hset(

@@ -4,10 +4,12 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use deadpool::managed::{self, Pool, PoolError, TimeoutType};
+use once_cell::sync::OnceCell;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::connection::{self, Connection};
 use crate::connector::{Connector, TcpConnector};
+use crate::resp3::value::Value;
 
 pub mod serde_helper;
 
@@ -38,12 +40,15 @@ pub enum ErrorKind {
     AcquireTimeout,
     #[error("connection timeout")]
     ConnectionTimeout,
+    #[error("ping-pong failed")]
+    PingPongFailed,
 }
 
 #[derive(Debug)]
 struct Manager<T> {
     connector: T,
     ping_counter: AtomicU64,
+    first_hello: OnceCell<Value>,
 }
 
 impl Client<TcpConnector> {
@@ -89,14 +94,15 @@ impl<T: Connector> Client<T> {
 }
 
 impl Builder {
-    pub fn bind(self, addr: SocketAddr) -> Result<Client<TcpConnector>, Error> {
-        self.build(TcpConnector::new(addr))
+    pub async fn bind(self, addr: SocketAddr) -> Result<(Client<TcpConnector>, Value), Error> {
+        self.build(TcpConnector::new(addr)).await
     }
 
-    pub fn build<T: Connector>(self, connector: T) -> Result<Client<T>, Error> {
+    pub async fn build<T: Connector>(self, connector: T) -> Result<(Client<T>, Value), Error> {
         let manager = Manager {
             connector,
             ping_counter: AtomicU64::new(0),
+            first_hello: OnceCell::new(),
         };
         let pool = Pool::builder(manager)
             .runtime(deadpool::Runtime::Tokio1)
@@ -111,7 +117,14 @@ impl Builder {
             Err(managed::BuildError::NoRuntimeSpecified(_)) => unreachable!(),
         };
 
-        Ok(Client { pool })
+        let client = Client { pool };
+        let pong: String = client.raw_command(&("PING",)).await?;
+        if pong != "PONG" {
+            return Err(ErrorKind::PingPongFailed.into());
+        }
+        let hello = client.pool.manager().first_hello.get().unwrap().clone();
+
+        Ok((client, hello))
     }
 
     pub fn acquire_timeout(mut self, timeout: Duration) -> Self {
@@ -137,22 +150,19 @@ impl<T: Connector> managed::Manager for Manager<T> {
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
         let conn = self.connector.connect().await?;
-        let (conn, _hello) = Connection::new(conn).await?;
-        #[cfg(debug_assertions)]
-        println!("New redis connection: {:?}", _hello);
+        let (conn, hello) = Connection::new(conn).await?;
+        let _ = self.first_hello.set(hello); // always setted after this point
         Ok(conn)
     }
 
     async fn recycle(&self, conn: &mut Self::Type) -> Result<(), managed::RecycleError<Error>> {
         let count = self.ping_counter.fetch_add(1, atomic::Ordering::Relaxed);
-        let (pong, pong_count): (String, u64) = conn
+        let pong: u64 = conn
             .raw_command(&("PING", count))
             .await
             .map_err(Error::from)?;
-        if pong != "PONG" || pong_count != count {
-            return Err(managed::RecycleError::StaticMessage(
-                "Invalid ping-pong response",
-            ));
+        if pong != count {
+            return Err(Error::from(ErrorKind::PingPongFailed).into());
         }
         Ok(())
     }
