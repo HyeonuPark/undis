@@ -1,4 +1,4 @@
-use std::cmp::{Eq, Ord};
+use std::cmp::{Eq, Ord, PartialEq, PartialOrd};
 use std::fmt;
 use std::hash::Hash;
 
@@ -17,7 +17,7 @@ pub enum Value {
     Map(IndexMap<BString, Value>),
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Double(f64);
 
 impl Double {
@@ -34,7 +34,19 @@ impl Double {
     }
 }
 
+impl PartialEq for Double {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
 impl Eq for Double {}
+
+impl PartialOrd for Double {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(&other.0)
+    }
+}
 
 impl Ord for Double {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {

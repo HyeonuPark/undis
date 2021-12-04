@@ -64,10 +64,12 @@ impl<T: Connector> Client<T> {
     ) -> Result<Resp, Error> {
         let mut conn = match self.pool.get().await {
             Ok(conn) => conn,
-            Err(PoolError::Backend(err)) => Err(err)?,
-            Err(PoolError::Timeout(TimeoutType::Wait)) => Err(ErrorKind::AcquireTimeout)?,
+            Err(PoolError::Backend(err)) => return Err(err),
+            Err(PoolError::Timeout(TimeoutType::Wait)) => {
+                return Err(ErrorKind::AcquireTimeout.into())
+            }
             Err(PoolError::Timeout(TimeoutType::Create | TimeoutType::Recycle)) => {
-                Err(ErrorKind::ConnectionTimeout)?
+                return Err(ErrorKind::ConnectionTimeout.into())
             }
             Err(
                 PoolError::Closed
@@ -105,7 +107,7 @@ impl Builder {
             .build();
         let pool = match pool {
             Ok(pool) => pool,
-            Err(managed::BuildError::Backend(err)) => Err(err)?,
+            Err(managed::BuildError::Backend(err)) => return Err(err),
             Err(managed::BuildError::NoRuntimeSpecified(_)) => unreachable!(),
         };
 
@@ -146,11 +148,11 @@ impl<T: Connector> managed::Manager for Manager<T> {
         let (pong, pong_count): (String, u64) = conn
             .raw_command(&("PING", count))
             .await
-            .map_err(|err| Error::from(err))?;
+            .map_err(Error::from)?;
         if pong != "PONG" || pong_count != count {
-            Err(managed::RecycleError::StaticMessage(
+            return Err(managed::RecycleError::StaticMessage(
                 "Invalid ping-pong response",
-            ))?
+            ));
         }
         Ok(())
     }

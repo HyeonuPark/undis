@@ -131,9 +131,7 @@ impl<'a, 'de> Deserializer<'a, 'de> {
 
 impl<'a, 'de> SeqAccess<'a, 'de> {
     fn child(&mut self) -> Deserializer<'_, 'de> {
-        Deserializer {
-            msg: &mut self.des.msg,
-        }
+        Deserializer { msg: self.des.msg }
     }
 }
 
@@ -200,14 +198,12 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
                     } else {
                         Err(Error::IntegerOverflow)
                     }
+                } else if let Some(num) = parse_str(digits) {
+                    visitor.visit_u64(num)
+                } else if let Some(num) = parse_str(digits) {
+                    visitor.visit_u128(num)
                 } else {
-                    if let Some(num) = parse_str(digits) {
-                        visitor.visit_u64(num)
-                    } else if let Some(num) = parse_str(digits) {
-                        visitor.visit_u128(num)
-                    } else {
-                        Err(Error::IntegerOverflow)
-                    }
+                    Err(Error::IntegerOverflow)
                 }
             }
             Kind::Null => visitor.visit_unit(),

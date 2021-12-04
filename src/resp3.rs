@@ -36,7 +36,7 @@ impl Reader {
             Err(err) => {
                 return match err {
                     None => Ok(None),
-                    Some(err) => Err(err.into()),
+                    Some(err) => Err(err),
                 }
             }
         }))
@@ -48,6 +48,12 @@ impl Reader {
 
     pub fn reset(&mut self) {
         self.tok.reset()
+    }
+}
+
+impl Default for Reader {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -65,6 +71,12 @@ impl CommandWriter {
     pub fn write<T: serde::Serialize>(&mut self, value: &T) -> Result<&[u8], ser_cmd::Error> {
         value.serialize(ser_cmd::CommandSerializer::new(&mut self.buf))?;
         Ok(&self.buf)
+    }
+}
+
+impl Default for CommandWriter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

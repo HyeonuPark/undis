@@ -4,6 +4,7 @@ use tokio::net::TcpStream;
 use undis::connection::Connection;
 
 #[derive(Debug, serde::Deserialize)]
+#[allow(dead_code)]
 struct MyStruct {
     foo: String,
     bar: i32,

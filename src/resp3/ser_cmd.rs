@@ -50,7 +50,7 @@ impl<'a> CommandSerializer<'a> {
 
     fn seq(&mut self) -> FlatArraySerializer<'_> {
         FlatArraySerializer {
-            buf: &mut self.buf,
+            buf: self.buf,
             count: &mut self.count,
         }
     }

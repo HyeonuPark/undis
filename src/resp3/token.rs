@@ -191,7 +191,7 @@ impl<'a> Token<'a> {
                 debug_assert!(
                     digits
                         .iter()
-                        .all(|&b| b == b'-' || (b >= b'0' && b <= b'9')),
+                        .all(|b| b == &b'-' || (b'0'..=b'9').contains(b)),
                     "RESP Big Number can only have digits and a sign"
                 );
                 buf.put_u8(BIG_NUMBER);
@@ -222,9 +222,9 @@ impl<'a> Token<'a> {
                 // stream not ended yet
                 (false, None) => stack.push(None),
                 // unexpected stream end token
-                (true, Some(_)) => Err(Error::UnexpectedStreamEnd)?,
+                (true, Some(_)) => return Err(Error::UnexpectedStreamEnd),
                 // 0 should never be pushed
-                (false, Some(0)) => Err(Error::RecursionStackModified)?,
+                (false, Some(0)) => return Err(Error::RecursionStackModified),
                 // the finite sequence is ended
                 (false, Some(1)) => {}
                 // advancing the finite sequence
@@ -324,6 +324,12 @@ impl Tokenizer {
     }
 }
 
+impl Default for Tokenizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn next_token<'a>(buf: &mut &'a [u8]) -> Result<Token<'a>, Option<Error>> {
     fn until_crlf<'a>(buf: &mut &'a [u8]) -> Result<&'a [u8], Option<Error>> {
         static CRLF_SEARCH: Lazy<Finder> = Lazy::new(|| Finder::new(CRLF));
@@ -337,13 +343,13 @@ fn next_token<'a>(buf: &mut &'a [u8]) -> Result<Token<'a>, Option<Error>> {
 
     fn until_len_crlf<'a>(buf: &mut &'a [u8], len: usize) -> Result<&'a [u8], Option<Error>> {
         if buf.len() < len + CRLF.len() {
-            Err(None)?;
+            return Err(None);
         }
         let (msg_crlf, remains) = buf.split_at(len + CRLF.len());
         *buf = remains;
         let (msg, crlf) = msg_crlf.split_at(len);
         if crlf != CRLF {
-            Err(Error::ExpectedCrlf)?;
+            return Err(Error::ExpectedCrlf.into());
         }
         Ok(msg)
     }
@@ -353,24 +359,22 @@ fn next_token<'a>(buf: &mut &'a [u8]) -> Result<Token<'a>, Option<Error>> {
         until_len_crlf(buf, len)
     }
 
-    fn parse_len<'a>(buf: &mut &'a [u8]) -> Result<usize, Option<Error>> {
+    fn parse_len(buf: &mut &[u8]) -> Result<usize, Option<Error>> {
         let msg = until_crlf(buf)?;
-        parse_str::<usize>(msg).ok_or(Error::ParseIntFailed.into())
+        Ok(parse_str::<usize>(msg).ok_or(Error::ParseIntFailed)?)
     }
 
-    fn parse_opt_len<'a>(buf: &mut &'a [u8]) -> Result<Option<usize>, Option<Error>> {
+    fn parse_opt_len(buf: &mut &[u8]) -> Result<Option<usize>, Option<Error>> {
         let msg = until_crlf(buf)?;
-        if msg == std::slice::from_ref(&STREAM_START) {
-            Ok(None)
+        Ok(if msg == std::slice::from_ref(&STREAM_START) {
+            None
         } else {
-            parse_str::<usize>(msg)
-                .ok_or(Error::ParseIntFailed.into())
-                .map(Some)
-        }
+            Some(parse_str::<usize>(msg).ok_or(Error::ParseIntFailed)?)
+        })
     }
 
     if buf.is_empty() {
-        Err(None)?;
+        return Err(None);
     }
 
     Ok(match buf.get_u8() {
@@ -398,7 +402,7 @@ fn next_token<'a>(buf: &mut &'a [u8]) -> Result<Token<'a>, Option<Error>> {
         BOOLEAN => Boolean(match until_crlf(buf)? {
             BOOL_TRUE => true,
             BOOL_FALSE => false,
-            _ => Err(Error::ParseBoolFailed)?,
+            _ => return Err(Error::ParseBoolFailed.into()),
         }),
         BLOB_ERROR => BlobError(parse_blob_like(buf)?),
         VERBATIM => Verbatim(parse_blob_like(buf)?),
@@ -409,15 +413,15 @@ fn next_token<'a>(buf: &mut &'a [u8]) -> Result<Token<'a>, Option<Error>> {
         BIG_NUMBER => BigNumber({
             let msg = until_crlf(buf)?;
             if msg.is_empty() || msg == b"-" {
-                Err(Error::ParseIntFailed)?;
+                return Err(Error::ParseIntFailed.into());
             }
             let mut exclude_sign = msg;
             if exclude_sign[0] == b'-' {
                 exclude_sign = &exclude_sign[1..];
             }
-            for &digit in exclude_sign {
-                if digit < b'0' || digit > b'9' {
-                    Err(Error::ParseIntFailed)?;
+            for digit in exclude_sign {
+                if !(b'0'..=b'9').contains(digit) {
+                    return Err(Error::ParseIntFailed.into());
                 }
             }
             msg
@@ -426,6 +430,6 @@ fn next_token<'a>(buf: &mut &'a [u8]) -> Result<Token<'a>, Option<Error>> {
             until_len_crlf(buf, 0)?;
             StreamEnd
         }
-        _ => Err(Error::InvalidPrefix)?,
+        _ => return Err(Error::InvalidPrefix.into()),
     })
 }
