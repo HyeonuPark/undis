@@ -22,11 +22,22 @@ pub enum Error {
     Remote(String),
     #[error("integer overflowed")]
     IntegerOverflow,
+    #[error("unexpected streaming blob token")]
+    UnexpectedStreamingBlob,
     #[error("unexpected stream end token")]
     UnexpectedStreamEnd,
-    // TODO: remove this variant
-    #[error("wow it failed")]
-    Misc,
+    #[error("parse int failed")]
+    ParseIntFailed,
+    #[error("parse decimal number failed")]
+    ParseDecimalFailed,
+    #[error("parse single character failed")]
+    ParseCharFailed,
+    #[error("parse string failed")]
+    ParseStrFailed,
+    #[error("cannot parse variant fields from single blob")]
+    BlobVariantRequestFields,
+    #[error("requested length is not match with the message")]
+    LengthMismatch,
 }
 
 #[derive(Debug)]
@@ -92,11 +103,13 @@ impl<'a, 'de> Deserializer<'a, 'de> {
                         match self.tok()? {
                             Kind::Blob(&[]) => return Ok(Kind::BlobOwned(buf)),
                             Kind::Blob(msg) => buf.extend_from_slice(msg),
-                            _ => return Err(Error::Misc),
+                            other => return invalid_token(other, "streaming blobs"),
                         }
                     }
                 }
-                Some(Token::BlobStream(_)) => return Err(Error::Misc),
+                Some(Token::BlobStream(_)) => {
+                    return Err(Error::UnexpectedStreamingBlob);
+                }
                 Some(Token::Number(num)) => Ok(Kind::Num(num)),
                 Some(Token::BigNumber(digits)) => Ok(Kind::BigNum(digits)),
                 Some(Token::Null) => Ok(Kind::Null),
@@ -149,9 +162,9 @@ macro_rules! deserialize_small_int {
         {
             match self.tok()? {
                 Kind::Num(num) => visitor.[<visit_ $int>](num.try_into().map_err(|_| Error::IntegerOverflow)?),
-                Kind::Blob(msg) => visitor.[<visit_ $int>](parse_str(msg).ok_or(Error::Misc)?),
-                Kind::BlobOwned(msg) => visitor.[<visit_ $int>](parse_str(&msg).ok_or(Error::Misc)?),
-                _ => Err(Error::Misc),
+                Kind::Blob(msg) => visitor.[<visit_ $int>](parse_str(msg).ok_or(Error::ParseIntFailed)?),
+                Kind::BlobOwned(msg) => visitor.[<visit_ $int>](parse_str(&msg).ok_or(Error::ParseIntFailed)?),
+                other => return invalid_token(other, "integer"),
             }
         }
     )*}};
@@ -166,9 +179,9 @@ macro_rules! deserialize_large_int {
             match self.tok()? {
                 Kind::Num(num) => visitor.[<visit_ $int>](num.try_into().map_err(|_| Error::IntegerOverflow)?),
                 Kind::BigNum(digits) => visitor.[<visit_ $int>](parse_str(digits).ok_or(Error::IntegerOverflow)?),
-                Kind::Blob(msg) => visitor.[<visit_ $int>](parse_str(msg).ok_or(Error::Misc)?),
-                Kind::BlobOwned(msg) => visitor.[<visit_ $int>](parse_str(&msg).ok_or(Error::Misc)?),
-                _ => Err(Error::Misc),
+                Kind::Blob(msg) => visitor.[<visit_ $int>](parse_str(msg).ok_or(Error::ParseIntFailed)?),
+                Kind::BlobOwned(msg) => visitor.[<visit_ $int>](parse_str(&msg).ok_or(Error::ParseIntFailed)?),
+                other => return invalid_token(other, "integer"),
             }
         }
     )*}};
@@ -224,14 +237,16 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
             match msg {
                 b"1" => Ok(true),
                 b"0" => Ok(false),
-                _ => Err(Error::Misc),
+                other => invalid_token(Kind::Blob(other), "boolean"),
             }
         }
         match self.tok()? {
             Kind::Bool(b) => visitor.visit_bool(b),
             Kind::Blob(msg) => visitor.visit_bool(parse(msg)?),
             Kind::BlobOwned(msg) => visitor.visit_bool(parse(&msg)?),
-            _ => Err(Error::Misc),
+            Kind::Num(1) => visitor.visit_bool(true),
+            Kind::Num(0) => visitor.visit_bool(false),
+            other => invalid_token(other, "boolean"),
         }
     }
 
@@ -244,9 +259,11 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
     {
         match self.tok()? {
             Kind::Double(num) => visitor.visit_f32(num as _),
-            Kind::Blob(msg) => visitor.visit_f32(parse_str(msg).ok_or(Error::Misc)?),
-            Kind::BlobOwned(msg) => visitor.visit_f32(parse_str(&msg).ok_or(Error::Misc)?),
-            _ => Err(Error::Misc),
+            Kind::Blob(msg) => visitor.visit_f32(parse_str(msg).ok_or(Error::ParseDecimalFailed)?),
+            Kind::BlobOwned(msg) => {
+                visitor.visit_f32(parse_str(&msg).ok_or(Error::ParseDecimalFailed)?)
+            }
+            other => invalid_token(other, "decimal number"),
         }
     }
 
@@ -256,9 +273,11 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
     {
         match self.tok()? {
             Kind::Double(num) => visitor.visit_f64(num),
-            Kind::Blob(msg) => visitor.visit_f64(parse_str(msg).ok_or(Error::Misc)?),
-            Kind::BlobOwned(msg) => visitor.visit_f64(parse_str(&msg).ok_or(Error::Misc)?),
-            _ => Err(Error::Misc),
+            Kind::Blob(msg) => visitor.visit_f64(parse_str(msg).ok_or(Error::ParseDecimalFailed)?),
+            Kind::BlobOwned(msg) => {
+                visitor.visit_f64(parse_str(&msg).ok_or(Error::ParseDecimalFailed)?)
+            }
+            other => invalid_token(other, "decimal number"),
         }
     }
 
@@ -267,9 +286,11 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
         V: de::Visitor<'de>,
     {
         match self.tok()? {
-            Kind::Blob(msg) => visitor.visit_f64(parse_str(msg).ok_or(Error::Misc)?),
-            Kind::BlobOwned(msg) => visitor.visit_f64(parse_str(&msg).ok_or(Error::Misc)?),
-            _ => Err(Error::Misc),
+            Kind::Blob(msg) => visitor.visit_char(parse_str(msg).ok_or(Error::ParseCharFailed)?),
+            Kind::BlobOwned(msg) => {
+                visitor.visit_char(parse_str(&msg).ok_or(Error::ParseCharFailed)?)
+            }
+            other => invalid_token(other, "single character"),
         }
     }
 
@@ -278,11 +299,13 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
         V: de::Visitor<'de>,
     {
         match self.tok()? {
-            Kind::Blob(msg) => visitor.visit_str(str::from_utf8(msg).map_err(|_| Error::Misc)?),
-            Kind::BlobOwned(msg) => {
-                visitor.visit_str(str::from_utf8(&msg).map_err(|_| Error::Misc)?)
+            Kind::Blob(msg) => {
+                visitor.visit_str(str::from_utf8(msg).map_err(|_| Error::ParseStrFailed)?)
             }
-            _ => Err(Error::Misc),
+            Kind::BlobOwned(msg) => {
+                visitor.visit_str(str::from_utf8(&msg).map_err(|_| Error::ParseStrFailed)?)
+            }
+            other => invalid_token(other, "string"),
         }
     }
 
@@ -291,13 +314,15 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
         V: de::Visitor<'de>,
     {
         match self.tok()? {
-            Kind::Blob(msg) => {
-                visitor.visit_string(str::from_utf8(msg).map_err(|_| Error::Misc)?.into())
-            }
+            Kind::Blob(msg) => visitor.visit_string(
+                str::from_utf8(msg)
+                    .map_err(|_| Error::ParseStrFailed)?
+                    .into(),
+            ),
             Kind::BlobOwned(msg) => {
-                visitor.visit_string(String::from_utf8(msg).map_err(|_| Error::Misc)?)
+                visitor.visit_string(String::from_utf8(msg).map_err(|_| Error::ParseStrFailed)?)
             }
-            _ => Err(Error::Misc),
+            other => invalid_token(other, "string"),
         }
     }
 
@@ -308,7 +333,7 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
         match self.tok()? {
             Kind::Blob(msg) => visitor.visit_bytes(msg),
             Kind::BlobOwned(msg) => visitor.visit_bytes(&msg),
-            _ => Err(Error::Misc),
+            other => invalid_token(other, "bytes"),
         }
     }
 
@@ -319,7 +344,7 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
         match self.tok()? {
             Kind::Blob(msg) => visitor.visit_byte_buf(msg.into()),
             Kind::BlobOwned(msg) => visitor.visit_byte_buf(msg),
-            _ => Err(Error::Misc),
+            other => invalid_token(other, "bytes"),
         }
     }
 
@@ -340,7 +365,7 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
         match self.tok()? {
             Kind::Null | Kind::Blob(b"") => visitor.visit_unit(),
             Kind::BlobOwned(msg) if msg.is_empty() => visitor.visit_unit(),
-            _ => Err(Error::Misc),
+            other => invalid_token(other, "unit type"),
         }
     }
 
@@ -372,7 +397,7 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
     {
         match self.tok()? {
             Kind::Array(len) | Kind::Set(len) => visitor.visit_seq(self.seq(len)),
-            _ => Err(Error::Misc),
+            other => invalid_token(other, "sequence"),
         }
     }
 
@@ -383,7 +408,7 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
         match self.tok()? {
             Kind::Array(Some(seq_len)) if len == seq_len => visitor.visit_seq(self.seq(Some(len))),
             Kind::Array(None) => visitor.visit_seq(self.seq(Some(len))),
-            _ => Err(Error::Misc),
+            other => invalid_token(other, "sequence"),
         }
     }
 
@@ -405,7 +430,7 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
     {
         match self.tok()? {
             Kind::Map(len) => visitor.visit_map(self.seq(len)),
-            _ => Err(Error::Misc),
+            other => invalid_token(other, "map"),
         }
     }
 
@@ -427,7 +452,7 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
                 visitor.visit_map(self.seq(Some(map_len)))
             }
             Kind::Map(None) => visitor.visit_map(self.seq(Some(fields.len()))),
-            _ => Err(Error::Misc),
+            other => invalid_token(other, "struct"),
         }
     }
 
@@ -444,7 +469,7 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
             Kind::Blob(msg) => visitor.visit_enum(BlobAccess::new(msg)),
             Kind::BlobOwned(msg) => visitor.visit_enum(BlobAccess::new(msg)),
             Kind::Array(len) => visitor.visit_enum(self.seq(len)),
-            _ => Err(Error::Misc),
+            other => invalid_token(other, "enum"),
         }
     }
 
@@ -538,14 +563,14 @@ impl<'de> de::VariantAccess<'de> for BlobAccess<'de> {
     where
         T: de::DeserializeSeed<'de>,
     {
-        Err(Error::Misc)
+        Err(Error::BlobVariantRequestFields)
     }
 
     fn tuple_variant<V>(self, _len: usize, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        Err(Error::Misc)
+        Err(Error::BlobVariantRequestFields)
     }
 
     fn struct_variant<V>(
@@ -556,7 +581,7 @@ impl<'de> de::VariantAccess<'de> for BlobAccess<'de> {
     where
         V: de::Visitor<'de>,
     {
-        Err(Error::Misc)
+        Err(Error::BlobVariantRequestFields)
     }
 }
 
@@ -569,13 +594,13 @@ impl<'a, 'de> de::EnumAccess<'de> for SeqAccess<'a, 'de> {
         V: de::DeserializeSeed<'de>,
     {
         let variant = match self.len {
-            Some(0) => return Err(Error::Misc),
+            Some(0) => return Err(Error::LengthMismatch),
             Some(len) => {
                 self.len = Some(len - 1);
                 seed.deserialize(self.child())?
             }
             None => match self.des.peek()? {
-                Kind::StreamEnd => return Err(Error::Misc),
+                Kind::StreamEnd => return Err(Error::UnexpectedStreamEnd),
                 _ => seed.deserialize(self.child())?,
             },
         };
@@ -590,10 +615,10 @@ impl<'a, 'de> de::VariantAccess<'de> for SeqAccess<'a, 'de> {
     fn unit_variant(mut self) -> Result<(), Self::Error> {
         match self.len {
             Some(0) => Ok(()),
-            Some(_) => Err(Error::Misc),
+            Some(_) => Err(Error::LengthMismatch),
             None => match self.des.peek()? {
                 Kind::StreamEnd => Ok(()),
-                _ => Err(Error::Misc),
+                other => invalid_token(other, "stream end"),
             },
         }
     }
@@ -610,8 +635,7 @@ impl<'a, 'de> de::VariantAccess<'de> for SeqAccess<'a, 'de> {
         V: de::Visitor<'de>,
     {
         if self.len.map_or(false, |len| len != tuple_len) {
-            // length mismatch
-            return Err(Error::Misc);
+            return Err(Error::LengthMismatch);
         }
 
         visitor.visit_seq(self)
@@ -626,8 +650,7 @@ impl<'a, 'de> de::VariantAccess<'de> for SeqAccess<'a, 'de> {
         V: de::Visitor<'de>,
     {
         if self.len.map_or(false, |len| len != fields.len()) {
-            // length mismatch
-            return Err(Error::Misc);
+            return Err(Error::LengthMismatch);
         }
 
         visitor.visit_seq(self)
@@ -641,8 +664,7 @@ macro_rules! forward_single {
             V: de::Visitor<'de>,
         {
             if self.len.map_or(false, |len| len != 1) {
-                // not a single item seq
-                return Err(Error::Misc);
+                return Err(Error::LengthMismatch);
             }
 
             let res = self.child().[<deserialize_ $kind>](visitor)?;
@@ -651,7 +673,7 @@ macro_rules! forward_single {
                 // streaming seq
                 match self.des.tok()? {
                     Kind::StreamEnd => {}
-                    _ => return Err(Error::Misc),
+                    other => return invalid_token(other, "stream end"),
                 }
             }
 
@@ -682,8 +704,7 @@ impl<'a, 'de> de::Deserializer<'de> for SeqAccess<'a, 'de> {
         V: de::Visitor<'de>,
     {
         if self.len.map_or(false, |len| len != 1) {
-            // not a single item seq
-            return Err(Error::Misc);
+            return Err(Error::LengthMismatch);
         }
 
         let res = self.child().deserialize_unit_struct(name, visitor)?;
@@ -692,7 +713,7 @@ impl<'a, 'de> de::Deserializer<'de> for SeqAccess<'a, 'de> {
             // streaming seq
             match self.des.tok()? {
                 Kind::StreamEnd => {}
-                _ => return Err(Error::Misc),
+                other => return invalid_token(other, "stream end"),
             }
         }
 
@@ -708,8 +729,7 @@ impl<'a, 'de> de::Deserializer<'de> for SeqAccess<'a, 'de> {
         V: de::Visitor<'de>,
     {
         if self.len.map_or(false, |len| len != 1) {
-            // not a single item seq
-            return Err(Error::Misc);
+            return Err(Error::LengthMismatch);
         }
 
         let res = self.child().deserialize_newtype_struct(name, visitor)?;
@@ -718,7 +738,7 @@ impl<'a, 'de> de::Deserializer<'de> for SeqAccess<'a, 'de> {
             // streaming seq
             match self.des.tok()? {
                 Kind::StreamEnd => {}
-                _ => return Err(Error::Misc),
+                other => return invalid_token(other, "stream end"),
             }
         }
 
@@ -737,7 +757,7 @@ impl<'a, 'de> de::Deserializer<'de> for SeqAccess<'a, 'de> {
         V: de::Visitor<'de>,
     {
         if self.len.map_or(false, |len| len != tuple_len) {
-            return Err(Error::Misc);
+            return Err(Error::LengthMismatch);
         }
 
         visitor.visit_seq(self)
@@ -765,7 +785,7 @@ impl<'a, 'de> de::Deserializer<'de> for SeqAccess<'a, 'de> {
         V: de::Visitor<'de>,
     {
         if self.len.map_or(false, |len| len != fields.len()) {
-            return Err(Error::Misc);
+            return Err(Error::LengthMismatch);
         }
 
         visitor.visit_seq(self)
@@ -819,4 +839,23 @@ impl de::Error for Error {
     {
         Error::Custom(msg.to_string())
     }
+}
+
+fn invalid_token<T>(kind: Kind<'_>, expected: &'static str) -> Result<T, Error> {
+    use de::{Error as _, Unexpected};
+
+    let unexpected = match kind {
+        Kind::Blob(msg) => Unexpected::Bytes(msg),
+        Kind::BlobOwned(ref msg) => Unexpected::Bytes(msg),
+        Kind::Num(n) => Unexpected::Signed(n),
+        Kind::BigNum(_) => Unexpected::Other("BigNumber"),
+        Kind::Null => Unexpected::Unit,
+        Kind::Double(n) => Unexpected::Float(n),
+        Kind::Bool(b) => Unexpected::Bool(b),
+        Kind::Array(_) | Kind::Set(_) => Unexpected::Seq,
+        Kind::Map(_) | Kind::Push(_) => Unexpected::Map,
+        Kind::StreamEnd => Unexpected::Other("StreamEnd"),
+    };
+
+    Err(Error::invalid_type(unexpected, &expected))
 }
