@@ -27,6 +27,8 @@ jobs:
           toolchain: 1.57
           components: rustfmt, clippy
           profile: minimal
+          default: true
+      - run: rustup update
       - uses: actions/cache@v2
         with:
           path: |
