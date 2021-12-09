@@ -11,10 +11,9 @@ struct MyStruct {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let (client, hello) = Client::builder(10)
-        .bind(([127, 0, 0, 1], 6379).into())
-        .await?;
-    println!("HELLO: {:?}", hello);
+    let addr = std::env::var("REDIS_URL")?;
+    let client = Client::builder(10).bind(&addr).await?;
+    println!("HELLO: {:?}", client.server_hello());
 
     let cnt = client
         .hset(

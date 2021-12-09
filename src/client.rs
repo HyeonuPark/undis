@@ -1,24 +1,27 @@
-use std::net::SocketAddr;
+use std::ops;
 use std::sync::atomic::{self, AtomicU64};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use deadpool::managed::{self, Pool, PoolError, TimeoutType};
+use deadpool::managed::{self, Object, Pool, PoolError, TimeoutType};
 use once_cell::sync::OnceCell;
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::connection::{self, Connection};
-use crate::connector::{Connector, TcpConnector};
-use crate::resp3::value::Value;
+use crate::connection::{self, Connection as RawConnection};
+use crate::connector::{Connector, LookupError, TcpConnector};
+use crate::resp3::{de, value::Value};
 
 pub mod serde_helper;
 
 pub mod hash;
 
 #[derive(Debug)]
-pub struct Client<T: Connector> {
+pub struct Client<T: Connector = TcpConnector> {
     pool: Pool<Manager<T>>,
 }
+
+#[derive(Debug)]
+pub struct Connection<T: Connector>(Object<Manager<T>>);
 
 #[derive(Debug)]
 pub struct Builder {
@@ -42,6 +45,8 @@ pub enum ErrorKind {
     ConnectionTimeout,
     #[error("ping-pong failed")]
     PingPongFailed,
+    #[error("DNS lookup failed")]
+    Lookup(#[from] LookupError),
 }
 
 #[derive(Debug)]
@@ -63,18 +68,30 @@ impl Client<TcpConnector> {
 }
 
 impl<T: Connector> Client<T> {
-    pub async fn raw_command<Req: Serialize, Resp: DeserializeOwned>(
+    pub fn server_hello(&self) -> &Value {
+        self.pool.manager().first_hello.get().unwrap()
+    }
+
+    pub async fn raw_request<Req: Serialize, Resp: DeserializeOwned>(
         &self,
         request: &Req,
     ) -> Result<Resp, Error> {
-        let mut conn = match self.pool.get().await {
-            Ok(conn) => conn,
-            Err(PoolError::Backend(err)) => return Err(err),
-            Err(PoolError::Timeout(TimeoutType::Wait)) => {
-                return Err(ErrorKind::AcquireTimeout.into())
-            }
+        let mut conn = self.connection().await?;
+
+        conn.raw_request(request).await.map_err(|err| {
+            // remove the connection which reported the error
+            Connection::detach(conn);
+            err.into()
+        })
+    }
+
+    pub async fn connection(&self) -> Result<Connection<T>, Error> {
+        match self.pool.get().await {
+            Ok(conn) => Ok(Connection(conn)),
+            Err(PoolError::Backend(err)) => Err(err),
+            Err(PoolError::Timeout(TimeoutType::Wait)) => Err(ErrorKind::AcquireTimeout.into()),
             Err(PoolError::Timeout(TimeoutType::Create | TimeoutType::Recycle)) => {
-                return Err(ErrorKind::ConnectionTimeout.into())
+                Err(ErrorKind::ConnectionTimeout.into())
             }
             Err(
                 PoolError::Closed
@@ -83,22 +100,49 @@ impl<T: Connector> Client<T> {
                 | PoolError::PreRecycleHook(_)
                 | PoolError::PostRecycleHook(_),
             ) => unreachable!(),
-        };
+        }
+    }
+}
 
-        conn.raw_command(request).await.map_err(|err| {
-            // remove the connection with error
-            let _ = managed::Object::take(conn);
-            err.into()
-        })
+impl<T: Connector> Clone for Client<T> {
+    fn clone(&self) -> Self {
+        Self {
+            pool: self.pool.clone(),
+        }
+    }
+}
+
+impl<T: Connector> Connection<T> {
+    pub fn detach(this: Self) -> RawConnection<T::Connection> {
+        Object::take(this.0)
+    }
+}
+
+impl<T: Connector> ops::Deref for Connection<T> {
+    type Target = RawConnection<T::Connection>;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
+
+impl<T: Connector> ops::DerefMut for Connection<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut *self.0
     }
 }
 
 impl Builder {
-    pub async fn bind(self, addr: SocketAddr) -> Result<(Client<TcpConnector>, Value), Error> {
-        self.build(TcpConnector::new(addr)).await
+    pub async fn bind(self, addr: &str) -> Result<Client<TcpConnector>, Error> {
+        self.build(
+            TcpConnector::lookup(addr)
+                .await
+                .map_err(ErrorKind::Lookup)?,
+        )
+        .await
     }
 
-    pub async fn build<T: Connector>(self, connector: T) -> Result<(Client<T>, Value), Error> {
+    pub async fn build<T: Connector>(self, connector: T) -> Result<Client<T>, Error> {
         let manager = Manager {
             connector,
             ping_counter: AtomicU64::new(0),
@@ -118,13 +162,12 @@ impl Builder {
         };
 
         let client = Client { pool };
-        let pong: String = client.raw_command(&("PING",)).await?;
+        let pong: String = client.raw_request(&("PING",)).await?;
         if pong != "PONG" {
             return Err(ErrorKind::PingPongFailed.into());
         }
-        let hello = client.pool.manager().first_hello.get().unwrap().clone();
 
-        Ok((client, hello))
+        Ok(client)
     }
 
     pub fn acquire_timeout(mut self, timeout: Duration) -> Self {
@@ -145,12 +188,12 @@ impl Builder {
 
 #[async_trait]
 impl<T: Connector> managed::Manager for Manager<T> {
-    type Type = Connection<T::Connection>;
+    type Type = RawConnection<T::Connection>;
     type Error = Error;
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
         let conn = self.connector.connect().await?;
-        let (conn, hello) = Connection::new(conn).await?;
+        let (conn, hello) = RawConnection::new(conn).await?;
         let _ = self.first_hello.set(hello); // always setted after this point
         Ok(conn)
     }
@@ -158,7 +201,7 @@ impl<T: Connector> managed::Manager for Manager<T> {
     async fn recycle(&self, conn: &mut Self::Type) -> Result<(), managed::RecycleError<Error>> {
         let count = self.ping_counter.fetch_add(1, atomic::Ordering::Relaxed);
         let pong: u64 = conn
-            .raw_command(&("PING", count))
+            .raw_request(&("PING", count))
             .await
             .map_err(Error::from)?;
         if pong != count {
@@ -172,9 +215,15 @@ impl<T: Connector> managed::Manager for Manager<T> {
     }
 }
 
+impl From<de::Error> for Error {
+    fn from(err: de::Error) -> Self {
+        connection::Error::from(err).into()
+    }
+}
+
 impl From<connection::Error> for Error {
     fn from(err: connection::Error) -> Self {
-        Error(Box::new(err.into()))
+        ErrorKind::from(err).into()
     }
 }
 

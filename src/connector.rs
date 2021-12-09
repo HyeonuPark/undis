@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpStream;
+use tokio::net::{lookup_host, TcpStream};
 
 use crate::connection::Error;
 
@@ -20,9 +20,25 @@ pub struct TcpConnector {
     addr: SocketAddr,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum LookupError {
+    #[error("IO error during DNS lookup")]
+    Io(#[from] std::io::Error),
+    #[error("DNS record not found")]
+    NotFound,
+}
+
 impl TcpConnector {
     pub fn new(addr: SocketAddr) -> Self {
         TcpConnector { addr }
+    }
+
+    pub async fn lookup(addr: &str) -> Result<Self, LookupError> {
+        let addr = lookup_host(addr)
+            .await?
+            .next()
+            .ok_or(LookupError::NotFound)?;
+        Ok(TcpConnector::new(addr))
     }
 }
 

@@ -1,6 +1,6 @@
 use std::marker::Unpin;
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::resp3::{de, ser_cmd, token, value::Value, CommandWriter, Reader};
@@ -32,24 +32,34 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
             writer: CommandWriter::new(),
         };
 
-        let resp = chan.raw_command(&("HELLO", 3)).await?;
+        let resp = chan.raw_request(&("HELLO", 3)).await?;
 
         Ok((chan, resp))
     }
 
-    pub async fn raw_command<Req: Serialize, Resp: DeserializeOwned>(
+    pub async fn raw_request_message<Req: Serialize>(
         &mut self,
         request: &Req,
-    ) -> Result<Resp, Error> {
+    ) -> Result<token::Message<'_>, Error> {
         let req = self.writer.write(request)?;
         self.transport.write_all(req).await?;
         self.reader.consume();
 
         loop {
             self.transport.read_buf(self.reader.buf()).await?;
-            if let Some(msg) = self.reader.read()? {
-                return Ok(msg.deserialize()?);
+            if let Some(_msg) = self.reader.read()? {
+                break;
             }
         }
+
+        // at this point the reader always stores the message
+        Ok(self.reader.read().unwrap().unwrap())
+    }
+
+    pub async fn raw_request<'de, Req: Serialize, Resp: Deserialize<'de>>(
+        &'de mut self,
+        request: &Req,
+    ) -> Result<Resp, Error> {
+        Ok(self.raw_request_message(request).await?.deserialize()?)
     }
 }

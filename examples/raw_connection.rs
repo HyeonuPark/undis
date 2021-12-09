@@ -13,16 +13,17 @@ struct MyStruct {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let conn = TcpStream::connect("127.0.0.1:6379").await?;
+    let addr = std::env::var("REDIS_URL")?;
+    let conn = TcpStream::connect(&addr).await?;
     let (mut conn, hello) = Connection::new(conn).await?;
 
     println!("hello: {:?}", hello);
 
     let cnt: usize = conn
-        .raw_command(&("HSET", "mykey", "foo", "abcde", "bar", 42, "baz", false))
+        .raw_request(&("HSET", "mykey", "foo", "abcde", "bar", 42, "baz", false))
         .await?;
-    let res: MyStruct = conn.raw_command(&("HGETALL", "mykey")).await?;
-    let pong: String = conn.raw_command(&("PING", 42)).await?;
+    let res: MyStruct = conn.raw_request(&("HGETALL", "mykey")).await?;
+    let pong: String = conn.raw_request(&("PING", 42)).await?;
 
     println!("cnt: {}, res: {:#?}, pong: {}", cnt, res, pong);
 

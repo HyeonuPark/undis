@@ -16,10 +16,10 @@ impl<T: ser::Serialize> ser::Serialize for EnsureSequence<T> {
     }
 }
 
-macro_rules! impl_scalar_types_not_supported {
+macro_rules! impl_scalar_types {
     ($($target:ident)*) => {paste!{$(
-        fn [<serialize_ $target>](self, _v: $target) -> Result<Self::Ok, Self::Error> {
-            Err(ser::Error::custom("scalar types are not supported"))
+        fn [<serialize_ $target>](self, v: $target) -> Result<Self::Ok, Self::Error> {
+            self.0.[<serialize_  $target>](v)
         }
     )*}};
 }
@@ -35,14 +35,14 @@ impl<S: ser::Serializer> ser::Serializer for EnsureSequenceSerializer<S> {
     type SerializeStruct = ser::Impossible<S::Ok, S::Error>;
     type SerializeStructVariant = ser::Impossible<S::Ok, S::Error>;
 
-    impl_scalar_types_not_supported!(bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 char);
+    impl_scalar_types!(bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 char);
 
-    fn serialize_str(self, _v: &str) -> Result<Self::Ok, Self::Error> {
-        Err(ser::Error::custom("scalar types are not supported"))
+    fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
+        self.0.serialize_str(v)
     }
 
-    fn serialize_bytes(self, _v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        Err(ser::Error::custom("scalar types are not supported"))
+    fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
+        self.0.serialize_bytes(v)
     }
 
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {

@@ -22,3 +22,7 @@ tokio = { version = "1.14", features = ["io-util", "net"] }
 [dev-dependencies]
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.14", features = ["rt", "macros"] }
+helper = { path = "./test-helper" }
+
+[workspace]
+members = [ "test-helper" ]

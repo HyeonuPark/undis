@@ -5,7 +5,7 @@ on: [push, pull_request]
 env:
   RUSTFLAGS: -D warnings
   CARGO_INCREMENTAL: 0
-  REDIS_URL: "redis:6379"
+  REDIS_URL: "localhost:6379"
 
 jobs:
   test:
@@ -14,6 +14,8 @@ jobs:
     services:
       redis:
         image: redis:6
+        ports:
+          - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -46,5 +48,7 @@ jobs:
 
       - name: Cargo test
         run: |
+          cargo run --example flushall
           cargo test --all
+          cargo run --example flushall
           cargo test --all --release

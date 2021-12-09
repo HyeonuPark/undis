@@ -5,6 +5,8 @@ pub mod ser_cmd;
 pub mod token;
 pub mod value;
 
+pub use value::Value;
+
 use token::Tokenizer;
 
 #[derive(Debug)]
