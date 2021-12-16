@@ -31,7 +31,7 @@ impl<T: Connector> Client<T> {
         K: Serialize,
         F: Serialize,
     {
-        self.raw_request(&("HDEL", EnsureScalar(key), EnsureSequence(fields)))
+        self.raw_command(&("HDEL", EnsureScalar(key), EnsureSequence(fields)))
             .await
     }
 
@@ -59,7 +59,7 @@ impl<T: Connector> Client<T> {
         K: Serialize,
         F: Serialize,
     {
-        self.raw_request(&("HEXISTS", EnsureScalar(key), EnsureScalar(field)))
+        self.raw_command(&("HEXISTS", EnsureScalar(key), EnsureScalar(field)))
             .await
     }
 
@@ -88,7 +88,7 @@ impl<T: Connector> Client<T> {
         F: Serialize,
         R: DeserializeOwned,
     {
-        self.raw_request(&("HGET", EnsureScalar(key), EnsureScalar(field)))
+        self.raw_command(&("HGET", EnsureScalar(key), EnsureScalar(field)))
             .await
     }
 
@@ -118,7 +118,7 @@ impl<T: Connector> Client<T> {
         K: Serialize,
         R: DeserializeOwned,
     {
-        self.raw_request(&("HGETALL", EnsureScalar(key))).await
+        self.raw_command(&("HGETALL", EnsureScalar(key))).await
     }
 
     /// <https://redis.io/commands/hincrby>
@@ -147,7 +147,7 @@ impl<T: Connector> Client<T> {
         K: Serialize,
         F: Serialize,
     {
-        self.raw_request(&("HINCRBY", EnsureScalar(key), EnsureScalar(field), increment))
+        self.raw_command(&("HINCRBY", EnsureScalar(key), EnsureScalar(field), increment))
             .await
     }
 
@@ -179,7 +179,7 @@ impl<T: Connector> Client<T> {
         K: Serialize,
         F: Serialize,
     {
-        self.raw_request(&(
+        self.raw_command(&(
             "HINCRBYFLOAT",
             EnsureScalar(key),
             EnsureScalar(field),
@@ -211,7 +211,7 @@ impl<T: Connector> Client<T> {
         K: Serialize,
         R: DeserializeOwned,
     {
-        self.raw_request(&("HKEYS", EnsureScalar(key))).await
+        self.raw_command(&("HKEYS", EnsureScalar(key))).await
     }
 
     /// <https://redis.io/commands/hlen>
@@ -236,7 +236,7 @@ impl<T: Connector> Client<T> {
     where
         K: Serialize,
     {
-        self.raw_request(&("HLEN", EnsureScalar(key))).await
+        self.raw_command(&("HLEN", EnsureScalar(key))).await
     }
 
     /// <https://redis.io/commands/hmget>
@@ -281,7 +281,7 @@ impl<T: Connector> Client<T> {
                 .into(),
             )
         })?;
-        self.raw_request(&("HMGET", EnsureScalar(key), fields))
+        self.raw_command(&("HMGET", EnsureScalar(key), fields))
             .await
     }
 
@@ -310,7 +310,7 @@ impl<T: Connector> Client<T> {
         K: Serialize,
         R: DeserializeOwned,
     {
-        self.raw_request(&("HRANDFIELD", EnsureScalar(key))).await
+        self.raw_command(&("HRANDFIELD", EnsureScalar(key))).await
     }
 
     /// <https://redis.io/commands/hrandfield>
@@ -338,7 +338,7 @@ impl<T: Connector> Client<T> {
         K: Serialize,
         R: DeserializeOwned,
     {
-        self.raw_request(&("HRANDFIELD", EnsureScalar(key), count))
+        self.raw_command(&("HRANDFIELD", EnsureScalar(key), count))
             .await
     }
 
@@ -372,7 +372,7 @@ impl<T: Connector> Client<T> {
         K: Serialize,
         R: DeserializeOwned,
     {
-        self.raw_request(&(
+        self.raw_command(&(
             "HSCAN",
             EnsureScalar(key),
             cursor,
@@ -405,7 +405,7 @@ impl<T: Connector> Client<T> {
         K: Serialize,
         E: Serialize,
     {
-        self.raw_request(&("HSET", EnsureScalar(key), EnsureMapLike(entries)))
+        self.raw_command(&("HSET", EnsureScalar(key), EnsureMapLike(entries)))
             .await
     }
 
@@ -434,7 +434,7 @@ impl<T: Connector> Client<T> {
         F: Serialize,
         V: Serialize,
     {
-        self.raw_request(&(
+        self.raw_command(&(
             "HSETNX",
             EnsureScalar(key),
             EnsureScalar(field),
@@ -471,7 +471,7 @@ impl<T: Connector> Client<T> {
         K: Serialize,
         F: Serialize,
     {
-        self.raw_request(&("HSTRLEN", EnsureScalar(key), EnsureScalar(field)))
+        self.raw_command(&("HSTRLEN", EnsureScalar(key), EnsureScalar(field)))
             .await
     }
 
@@ -499,6 +499,6 @@ impl<T: Connector> Client<T> {
         K: Serialize,
         R: DeserializeOwned,
     {
-        self.raw_request(&("HVALS", EnsureScalar(key))).await
+        self.raw_command(&("HVALS", EnsureScalar(key))).await
     }
 }

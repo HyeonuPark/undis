@@ -72,15 +72,15 @@ impl<T: Connector> Client<T> {
         self.pool.manager().first_hello.get().unwrap()
     }
 
-    pub async fn raw_request<Req: Serialize, Resp: DeserializeOwned>(
+    pub async fn raw_command<Req: Serialize, Resp: DeserializeOwned>(
         &self,
         request: &Req,
     ) -> Result<Resp, Error> {
         let mut conn = self.connection().await?;
 
-        conn.raw_request(request).await.map_err(|err| {
+        conn.raw_command(request).await.map_err(|err| {
             // remove the connection which reported the error
-            Connection::detach(conn);
+            conn.detach();
             err.into()
         })
     }
@@ -113,8 +113,8 @@ impl<T: Connector> Clone for Client<T> {
 }
 
 impl<T: Connector> Connection<T> {
-    pub fn detach(this: Self) -> RawConnection<T::Connection> {
-        Object::take(this.0)
+    pub fn detach(self) -> RawConnection<T::Connection> {
+        Object::take(self.0)
     }
 }
 
@@ -162,7 +162,7 @@ impl Builder {
         };
 
         let client = Client { pool };
-        let pong: String = client.raw_request(&("PING",)).await?;
+        let pong: String = client.raw_command(&("PING",)).await?;
         if pong != "PONG" {
             return Err(ErrorKind::PingPongFailed.into());
         }
@@ -201,7 +201,7 @@ impl<T: Connector> managed::Manager for Manager<T> {
     async fn recycle(&self, conn: &mut Self::Type) -> Result<(), managed::RecycleError<Error>> {
         let count = self.ping_counter.fetch_add(1, atomic::Ordering::Relaxed);
         let pong: u64 = conn
-            .raw_request(&("PING", count))
+            .raw_command(&("PING", count))
             .await
             .map_err(Error::from)?;
         if pong != count {

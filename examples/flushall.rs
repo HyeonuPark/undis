@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let conn = TcpStream::connect(&addr).await?;
     let (mut conn, _hello) = Connection::new(conn).await?;
 
-    let ok: String = conn.raw_request(&("FLUSHALL",)).await?;
+    let ok: String = conn.raw_command(&("FLUSHALL",)).await?;
     println!("{}", ok);
 
     Ok(())

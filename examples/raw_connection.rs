@@ -20,10 +20,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("hello: {:?}", hello);
 
     let cnt: usize = conn
-        .raw_request(&("HSET", "mykey", "foo", "abcde", "bar", 42, "baz", false))
+        .raw_command(&("HSET", "mykey", "foo", "abcde", "bar", 42, "baz", false))
         .await?;
-    let res: MyStruct = conn.raw_request(&("HGETALL", "mykey")).await?;
-    let pong: String = conn.raw_request(&("PING", 42)).await?;
+    let res: MyStruct = conn.raw_command(&("HGETALL", "mykey")).await?;
+    let pong: String = conn.raw_command(&("PING", 42)).await?;
 
     println!("cnt: {}, res: {:#?}, pong: {}", cnt, res, pong);
 

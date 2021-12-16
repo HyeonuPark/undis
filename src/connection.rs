@@ -32,19 +32,19 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
             writer: CommandWriter::new(),
         };
 
-        let resp = chan.raw_request(&("HELLO", 3)).await?;
+        let resp = chan.raw_command(&("HELLO", 3)).await?;
 
         Ok((chan, resp))
     }
 
-    pub async fn raw_request_message<Req: Serialize>(
-        &mut self,
-        request: &Req,
-    ) -> Result<token::Message<'_>, Error> {
-        let req = self.writer.write(request)?;
-        self.transport.write_all(req).await?;
-        self.reader.consume();
+    pub async fn send<Req: Serialize>(&mut self, request: &Req) -> Result<(), Error> {
+        self.transport
+            .write_all(self.writer.write(request)?)
+            .await?;
+        Ok(())
+    }
 
+    pub async fn receive(&mut self) -> Result<token::Message<'_>, Error> {
         loop {
             self.transport.read_buf(self.reader.buf()).await?;
             if let Some(_msg) = self.reader.read()? {
@@ -56,10 +56,11 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         Ok(self.reader.read().unwrap().unwrap())
     }
 
-    pub async fn raw_request<'de, Req: Serialize, Resp: Deserialize<'de>>(
+    pub async fn raw_command<'de, Req: Serialize, Resp: Deserialize<'de>>(
         &'de mut self,
         request: &Req,
     ) -> Result<Resp, Error> {
-        Ok(self.raw_request_message(request).await?.deserialize()?)
+        self.send(request).await?;
+        Ok(self.receive().await?.deserialize()?)
     }
 }
