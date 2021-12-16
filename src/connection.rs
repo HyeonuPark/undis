@@ -37,7 +37,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         Ok((chan, resp))
     }
 
-    pub async fn send<Req: Serialize>(&mut self, request: &Req) -> Result<(), Error> {
+    pub async fn send<Req: Serialize>(&mut self, request: Req) -> Result<(), Error> {
         self.transport
             .write_all(self.writer.write(request)?)
             .await?;
@@ -45,6 +45,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
     }
 
     pub async fn receive(&mut self) -> Result<token::Message<'_>, Error> {
+        self.reader.consume();
+
         loop {
             self.transport.read_buf(self.reader.buf()).await?;
             if let Some(_msg) = self.reader.read()? {
@@ -58,7 +60,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
 
     pub async fn raw_command<'de, Req: Serialize, Resp: Deserialize<'de>>(
         &'de mut self,
-        request: &Req,
+        request: Req,
     ) -> Result<Resp, Error> {
         self.send(request).await?;
         Ok(self.receive().await?.deserialize()?)

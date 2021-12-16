@@ -1,0 +1,9 @@
+[package]
+name = "runcmd"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tokio = { version = "1.14", features = ["rt", "macros"] }
+undis = { path = ".." }

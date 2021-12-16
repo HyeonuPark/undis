@@ -48,7 +48,7 @@ jobs:
 
       - name: Cargo test
         run: |
-          cargo run --example flushall
+          cargo run -p runcmd -- flushall
           cargo test --all
-          cargo run --example flushall
+          cargo run -p runcmd -- flushall
           cargo test --all --release

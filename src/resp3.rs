@@ -70,7 +70,7 @@ impl CommandWriter {
         Self { buf: Vec::new() }
     }
 
-    pub fn write<T: serde::Serialize>(&mut self, value: &T) -> Result<&[u8], ser_cmd::Error> {
+    pub fn write<T: serde::Serialize>(&mut self, value: T) -> Result<&[u8], ser_cmd::Error> {
         value.serialize(ser_cmd::CommandSerializer::new(&mut self.buf))?;
         Ok(&self.buf)
     }

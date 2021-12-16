@@ -74,7 +74,7 @@ impl<T: Connector> Client<T> {
 
     pub async fn raw_command<Req: Serialize, Resp: DeserializeOwned>(
         &self,
-        request: &Req,
+        request: Req,
     ) -> Result<Resp, Error> {
         let mut conn = self.connection().await?;
 
