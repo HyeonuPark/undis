@@ -1,10 +1,10 @@
 use std::ops;
 use std::sync::atomic::{self, AtomicU64};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use deadpool::managed::{self, Object, Pool, PoolError, TimeoutType};
-use once_cell::sync::OnceCell;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::connection::{self, Connection as RawConnection};
@@ -53,7 +53,7 @@ pub enum ErrorKind {
 struct Manager<T> {
     connector: T,
     ping_counter: AtomicU64,
-    first_hello: OnceCell<Value>,
+    last_hello: RwLock<Option<Arc<Value>>>,
 }
 
 impl Client<TcpConnector> {
@@ -68,8 +68,14 @@ impl Client<TcpConnector> {
 }
 
 impl<T: Connector> Client<T> {
-    pub fn server_hello(&self) -> &Value {
-        self.pool.manager().first_hello.get().unwrap()
+    pub fn server_hello(&self) -> Arc<Value> {
+        self.pool
+            .manager()
+            .last_hello
+            .read()
+            .unwrap()
+            .clone()
+            .unwrap()
     }
 
     pub async fn raw_command<Req: Serialize, Resp: DeserializeOwned>(
@@ -146,7 +152,7 @@ impl Builder {
         let manager = Manager {
             connector,
             ping_counter: AtomicU64::new(0),
-            first_hello: OnceCell::new(),
+            last_hello: RwLock::default(),
         };
         let pool = Pool::builder(manager)
             .runtime(deadpool::Runtime::Tokio1)
@@ -194,7 +200,8 @@ impl<T: Connector> managed::Manager for Manager<T> {
     async fn create(&self) -> Result<Self::Type, Self::Error> {
         let conn = self.connector.connect().await?;
         let (conn, hello) = RawConnection::new(conn).await?;
-        let _ = self.first_hello.set(hello); // always setted after this point
+        let hello = Arc::new(hello);
+        *self.last_hello.write().unwrap() = Some(hello);
         Ok(conn)
     }
 
