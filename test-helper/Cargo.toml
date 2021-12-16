@@ -6,4 +6,5 @@ edition = "2021"
 publish = false
 
 [dependencies]
+tokio = { version = "1.14", features = ["rt"] }
 undis = { path = ".." }

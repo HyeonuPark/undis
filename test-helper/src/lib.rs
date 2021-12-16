@@ -1,4 +1,5 @@
 use std::env;
+use std::future::Future;
 
 use undis::Client;
 
@@ -19,4 +20,15 @@ pub async fn client() -> Result<Client, BoxError> {
     let client = Client::builder(1).bind(&url).await?;
     println!("New redis connection: {:?}", client.server_hello());
     Ok(client)
+}
+
+pub fn with_client<T, F>(task: T) -> MainResult
+where
+    T: FnOnce(Client) -> F,
+    F: Future<Output = MainResult>,
+{
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(async { task(client().await?).await })
 }

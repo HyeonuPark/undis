@@ -11,8 +11,7 @@ impl<T: Connector> Client<T> {
     /// The `key` should be a scalar type, and the `fields` should be a sequence-like type.
     ///
     /// ```
-    /// # #[tokio::main(flavor = "current_thread")] async fn main() -> helper::MainResult {
-    /// # let client = helper::client().await?;
+    /// # helper::with_client(|client| async move {
     /// # let key = "doctest_client_hash_hdel_1";
     /// #[derive(serde::Serialize)]
     /// struct Fields {
@@ -25,7 +24,7 @@ impl<T: Connector> Client<T> {
     /// assert_eq!(2, res);
     /// let res = client.hdel(key, "field1").await?;
     /// assert_eq!(0, res);
-    /// # Ok(()) }
+    /// # Ok(())})?; Ok::<(), helper::BoxError>(())
     pub async fn hdel<K, F>(&self, key: K, fields: F) -> Result<usize, Error>
     where
         K: Serialize,
@@ -40,8 +39,7 @@ impl<T: Connector> Client<T> {
     /// The `key` and the `field` should be scalar types.
     ///
     /// ```
-    /// # #[tokio::main(flavor = "current_thread")] async fn main() -> helper::MainResult {
-    /// # let client = helper::client().await?;
+    /// # helper::with_client(|client| async move {
     /// # let key = "doctest_client_hash_hexists_1";
     /// #[derive(serde::Serialize)]
     /// struct Fields {
@@ -53,7 +51,7 @@ impl<T: Connector> Client<T> {
     /// assert!(res);
     /// let res = client.hexists(key, "field2").await?;
     /// assert!(!res);
-    /// # Ok(()) }
+    /// # Ok(())})?; Ok::<(), helper::BoxError>(())
     pub async fn hexists<K, F>(&self, key: K, field: F) -> Result<bool, Error>
     where
         K: Serialize,
@@ -68,8 +66,7 @@ impl<T: Connector> Client<T> {
     /// The `key` and the `field` should be scalar types.
     ///
     /// ```
-    /// # #[tokio::main(flavor = "current_thread")] async fn main() -> helper::MainResult {
-    /// # let client = helper::client().await?;
+    /// # helper::with_client(|client| async move {
     /// # let key = "doctest_client_hash_hget_1";
     /// #[derive(serde::Serialize)]
     /// struct Fields {
@@ -81,7 +78,7 @@ impl<T: Connector> Client<T> {
     /// assert_eq!("foo", res);
     /// let res: Option<String> = client.hget(key, "field2").await?;
     /// assert!(res.is_none());
-    /// # Ok(()) }
+    /// # Ok(())})?; Ok::<(), helper::BoxError>(())
     pub async fn hget<K, F, R>(&self, key: K, field: F) -> Result<R, Error>
     where
         K: Serialize,
@@ -97,8 +94,7 @@ impl<T: Connector> Client<T> {
     /// The `key` should be scalar type.
     ///
     /// ```
-    /// # #[tokio::main(flavor = "current_thread")] async fn main() -> helper::MainResult {
-    /// # let client = helper::client().await?;
+    /// # helper::with_client(|client| async move {
     /// # let key = "doctest_client_hash_hgetall_1";
     /// # use std::collections::HashMap;
     /// #[derive(serde::Serialize, PartialEq)]
@@ -112,7 +108,7 @@ impl<T: Connector> Client<T> {
     /// assert_eq!(2, res.len());
     /// assert_eq!("Hello", &res["field1"]);
     /// assert_eq!("World", &res["field2"]);
-    /// # Ok(()) }
+    /// # Ok(())})?; Ok::<(), helper::BoxError>(())
     pub async fn hgetall<K, R>(&self, key: K) -> Result<R, Error>
     where
         K: Serialize,
@@ -126,8 +122,7 @@ impl<T: Connector> Client<T> {
     /// The `key` and the `field` should be scalar types.
     ///
     /// ```
-    /// # #[tokio::main(flavor = "current_thread")] async fn main() -> helper::MainResult {
-    /// # let client = helper::client().await?;
+    /// # helper::with_client(|client| async move {
     /// # let key = "doctest_client_hash_hincrby_1";
     /// #[derive(serde::Serialize)]
     /// struct Fields {
@@ -141,7 +136,7 @@ impl<T: Connector> Client<T> {
     /// assert_eq!(5, res);
     /// let res = client.hincrby(key, "field1", -10).await?;
     /// assert_eq!(-5, res);
-    /// # Ok(()) }
+    /// # Ok(())})?; Ok::<(), helper::BoxError>(())
     pub async fn hincrby<K, F>(&self, key: K, field: F, increment: i64) -> Result<i64, Error>
     where
         K: Serialize,
@@ -156,8 +151,7 @@ impl<T: Connector> Client<T> {
     /// The `key` and the `field` should be scalar types.
     ///
     /// ```
-    /// # #[tokio::main(flavor = "current_thread")] async fn main() -> helper::MainResult {
-    /// # let client = helper::client().await?;
+    /// # helper::with_client(|client| async move {
     /// # let key = "doctest_client_hash_hincrbyfloat_1";
     /// #[derive(serde::Serialize)]
     /// struct Fields {
@@ -173,7 +167,7 @@ impl<T: Connector> Client<T> {
     /// assert_eq!(0, res);
     /// let res = client.hincrbyfloat(key, "field", 2.0e2).await?;
     /// assert_eq!(5200.0, res);
-    /// # Ok(()) }
+    /// # Ok(())})?; Ok::<(), helper::BoxError>(())
     pub async fn hincrbyfloat<K, F>(&self, key: K, field: F, increment: f64) -> Result<f64, Error>
     where
         K: Serialize,
@@ -193,8 +187,7 @@ impl<T: Connector> Client<T> {
     /// The `key` should be scalar type.
     ///
     /// ```
-    /// # #[tokio::main(flavor = "current_thread")] async fn main() -> helper::MainResult {
-    /// # let client = helper::client().await?;
+    /// # helper::with_client(|client| async move {
     /// # let key = "doctest_client_hash_hkeys_1";
     /// #[derive(serde::Serialize)]
     /// struct Fields {
@@ -205,7 +198,7 @@ impl<T: Connector> Client<T> {
     /// assert_eq!(2, res);
     /// let res: Vec<String> = client.hkeys(key).await?;
     /// assert_eq!(&["field1".to_owned(), "field2".to_owned()][..], &res[..]);
-    /// # Ok(()) }
+    /// # Ok(())})?; Ok::<(), helper::BoxError>(())
     pub async fn hkeys<K, R>(&self, key: K) -> Result<R, Error>
     where
         K: Serialize,
@@ -219,8 +212,7 @@ impl<T: Connector> Client<T> {
     /// The `key` should be scalar type.
     ///
     /// ```
-    /// # #[tokio::main(flavor = "current_thread")] async fn main() -> helper::MainResult {
-    /// # let client = helper::client().await?;
+    /// # helper::with_client(|client| async move {
     /// # let key = "doctest_client_hash_hlen_1";
     /// #[derive(serde::Serialize)]
     /// struct Fields {
@@ -231,7 +223,7 @@ impl<T: Connector> Client<T> {
     /// assert_eq!(2, res);
     /// let res = client.hlen(key).await?;
     /// assert_eq!(2, res);
-    /// # Ok(()) }
+    /// # Ok(())})?; Ok::<(), helper::BoxError>(())
     pub async fn hlen<K>(&self, key: K) -> Result<usize, Error>
     where
         K: Serialize,
@@ -245,8 +237,7 @@ impl<T: Connector> Client<T> {
     /// with `#[derive(serde::Deserialize)]`-ed struct or manual implementation with similar behavior.
     ///
     /// ```
-    /// # #[tokio::main(flavor = "current_thread")] async fn main() -> helper::MainResult {
-    /// # let client = helper::client().await?;
+    /// # helper::with_client(|client| async move {
     /// # let key = "doctest_client_hash_hmget_1";
     /// #[derive(serde::Serialize)]
     /// struct Fields {
@@ -265,7 +256,7 @@ impl<T: Connector> Client<T> {
     ///     let res: Query = client.hmget(key).await?;
     ///     assert_eq!(Query { field1: "Hello".into(), field2: "World".into(), nofield: None }, res);
     /// }
-    /// # Ok(()) }
+    /// # Ok(())})?; Ok::<(), helper::BoxError>(())
     pub async fn hmget<K, R>(&self, key: K) -> Result<R, Error>
     where
         K: Serialize,
@@ -291,8 +282,7 @@ impl<T: Connector> Client<T> {
     /// The `key` should be scalar type.
     ///
     /// ```
-    /// # #[tokio::main(flavor = "current_thread")] async fn main() -> helper::MainResult {
-    /// # let client = helper::client().await?;
+    /// # helper::with_client(|client| async move {
     /// # let key = "doctest_client_hash_hrandfield_1";
     /// #[derive(serde::Serialize)]
     /// struct Fields {
@@ -304,7 +294,7 @@ impl<T: Connector> Client<T> {
     /// assert_eq!(3, res);
     /// let res: String = client.hrandfield(key).await?;
     /// assert!(["head".to_owned(), "tails".to_owned(), "edge".to_owned()].contains(&res), "res: {}", res);
-    /// # Ok(()) }
+    /// # Ok(())})?; Ok::<(), helper::BoxError>(())
     pub async fn hrandfield<K, R>(&self, key: K) -> Result<R, Error>
     where
         K: Serialize,
@@ -319,8 +309,7 @@ impl<T: Connector> Client<T> {
     /// The `key` should be scalar type.
     ///
     /// ```
-    /// # #[tokio::main(flavor = "current_thread")] async fn main() -> helper::MainResult {
-    /// # let client = helper::client().await?;
+    /// # helper::with_client(|client| async move {
     /// # let key = "doctest_client_hash_hrandfield_2";
     /// #[derive(serde::Serialize)]
     /// struct Fields {
@@ -332,7 +321,7 @@ impl<T: Connector> Client<T> {
     /// assert_eq!(vec!["head".to_owned()], res);
     /// let res: Vec<String> = client.hrandfield_count(key, -3).await?;
     /// assert_eq!(vec!["head".to_owned(), "head".to_owned(), "head".to_owned()], res);
-    /// # Ok(()) }
+    /// # Ok(())})?; Ok::<(), helper::BoxError>(())
     pub async fn hrandfield_count<K, R>(&self, key: K, count: isize) -> Result<R, Error>
     where
         K: Serialize,
@@ -347,8 +336,7 @@ impl<T: Connector> Client<T> {
     /// The `key` should be scalar type.
     ///
     /// ```
-    /// # #[tokio::main(flavor = "current_thread")] async fn main() -> helper::MainResult {
-    /// # let client = helper::client().await?;
+    /// # helper::with_client(|client| async move {
     /// # let key = "doctest_client_hash_hscan_1";
     /// #[derive(serde::Serialize)]
     /// struct Fields {
@@ -360,7 +348,7 @@ impl<T: Connector> Client<T> {
     /// let (cursor, res): (u64, Vec<String>) = client.hscan(key, 0, None, None).await?;
     /// assert_eq!(0, cursor);
     /// assert_eq!(vec!["name".to_owned(), "Jack".to_owned(), "age".to_owned(), "33".to_owned()], res);
-    /// # Ok(()) }
+    /// # Ok(())})?; Ok::<(), helper::BoxError>(())
     pub async fn hscan<K, R>(
         &self,
         key: K,
@@ -387,8 +375,7 @@ impl<T: Connector> Client<T> {
     /// The `key` should be a scalar type, and the `entries` should be a map-like type.
     ///
     /// ```
-    /// # #[tokio::main(flavor = "current_thread")] async fn main() -> helper::MainResult {
-    /// # let client = helper::client().await?;
+    /// # helper::with_client(|client| async move {
     /// # let key = "doctest_client_hash_hset_1";
     /// #[derive(serde::Serialize)]
     /// struct Fields {
@@ -399,7 +386,7 @@ impl<T: Connector> Client<T> {
     /// assert_eq!(2, res);
     /// let res: String = client.hget(key, "field1").await?;
     /// assert_eq!("foo", res);
-    /// # Ok(()) }
+    /// # Ok(())})?; Ok::<(), helper::BoxError>(())
     pub async fn hset<K, E>(&self, key: K, entries: E) -> Result<usize, Error>
     where
         K: Serialize,
@@ -414,8 +401,7 @@ impl<T: Connector> Client<T> {
     /// The `key`, `field` and the `value` should be scalar types.
     ///
     /// ```
-    /// # #[tokio::main(flavor = "current_thread")] async fn main() -> helper::MainResult {
-    /// # let client = helper::client().await?;
+    /// # helper::with_client(|client| async move {
     /// # let key = "doctest_client_hash_hsetnx_1";
     /// #[derive(serde::Serialize)]
     /// struct Fields {
@@ -427,7 +413,7 @@ impl<T: Connector> Client<T> {
     /// assert!(!res);
     /// let res: String = client.hget(key, "field").await?;
     /// assert_eq!("Hello", res);
-    /// # Ok(()) }
+    /// # Ok(())})?; Ok::<(), helper::BoxError>(())
     pub async fn hsetnx<K, F, V>(&self, key: K, field: F, value: V) -> Result<bool, Error>
     where
         K: Serialize,
@@ -448,8 +434,7 @@ impl<T: Connector> Client<T> {
     /// The `key` and the `field` should be scalar types.
     ///
     /// ```
-    /// # #[tokio::main(flavor = "current_thread")] async fn main() -> helper::MainResult {
-    /// # let client = helper::client().await?;
+    /// # helper::with_client(|client| async move {
     /// # let key = "doctest_client_hash_hstrlen_1";
     /// #[derive(serde::Serialize)]
     /// struct Fields {
@@ -465,7 +450,7 @@ impl<T: Connector> Client<T> {
     /// assert_eq!(2, res);
     /// let res = client.hstrlen(key, "f3").await?;
     /// assert_eq!(4, res);
-    /// # Ok(()) }
+    /// # Ok(())})?; Ok::<(), helper::BoxError>(())
     pub async fn hstrlen<K, F>(&self, key: K, field: F) -> Result<usize, Error>
     where
         K: Serialize,
@@ -480,8 +465,7 @@ impl<T: Connector> Client<T> {
     /// The `key` should be scalar type.
     ///
     /// ```
-    /// # #[tokio::main(flavor = "current_thread")] async fn main() -> helper::MainResult {
-    /// # let client = helper::client().await?;
+    /// # helper::with_client(|client| async move {
     /// # let key = "doctest_client_hash_hvals_1";
     /// # use std::collections::HashMap;
     /// #[derive(serde::Serialize, PartialEq)]
@@ -493,7 +477,7 @@ impl<T: Connector> Client<T> {
     /// assert_eq!(2, res);
     /// let res: Vec<String> = client.hvals(key).await?;
     /// assert_eq!(vec!["Hello".to_owned(), "World".to_owned()], res);
-    /// # Ok(()) }
+    /// # Ok(())})?; Ok::<(), helper::BoxError>(())
     pub async fn hvals<K, R>(&self, key: K) -> Result<R, Error>
     where
         K: Serialize,
