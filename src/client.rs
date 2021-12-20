@@ -28,11 +28,11 @@ pub struct Builder {
     connection_limit: usize,
     acquire_timeout: Option<Duration>,
     connect_timeout: Option<Duration>,
-    ping_needed_timeout: Option<Duration>,
+    ping_timeout: Option<Duration>,
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("{0}")]
+#[error(transparent)]
 pub struct Error(#[from] pub Box<ErrorKind>);
 
 #[derive(Debug, thiserror::Error)]
@@ -57,12 +57,24 @@ struct Manager<T> {
 }
 
 impl Client<TcpConnector> {
+    /// Start client builder.
+    ///
+    /// The builder from this method is not limited to the `TcpConnector`.
+    ///
+    /// # Panic
+    ///
+    /// It panics if `connection_limit` is zero.
     pub fn builder(connection_limit: usize) -> Builder {
+        assert_ne!(
+            0, connection_limit,
+            "Client needs to have at least one connection"
+        );
+
         Builder {
             connection_limit,
             acquire_timeout: None,
             connect_timeout: None,
-            ping_needed_timeout: None,
+            ping_timeout: None,
         }
     }
 }
@@ -73,22 +85,25 @@ impl<T: Connector> Client<T> {
             .manager()
             .last_hello
             .read()
-            .unwrap()
+            .unwrap() // propagate panic if occurred
             .clone()
-            .unwrap()
+            .unwrap() // hello response always exist after client start
     }
 
     pub async fn raw_command<Req: Serialize, Resp: DeserializeOwned>(
         &self,
         request: Req,
     ) -> Result<Resp, Error> {
-        let mut conn = self.connection().await?;
-
-        conn.raw_command(request).await.map_err(|err| {
+        let conn = self.connection().await?;
+        let mut conn = scopeguard::guard(conn, |conn| {
             // remove the connection which reported the error
             conn.detach();
-            err.into()
-        })
+        });
+
+        let res = conn.raw_command(request).await?;
+        // don't remove the connection without error
+        scopeguard::ScopeGuard::into_inner(conn);
+        Ok(res)
     }
 
     pub async fn connection(&self) -> Result<Connection<T>, Error> {
@@ -159,7 +174,7 @@ impl Builder {
             .max_size(self.connection_limit)
             .wait_timeout(self.acquire_timeout)
             .create_timeout(self.connect_timeout)
-            .recycle_timeout(self.ping_needed_timeout)
+            .recycle_timeout(self.ping_timeout)
             .build();
         let pool = match pool {
             Ok(pool) => pool,
@@ -168,10 +183,8 @@ impl Builder {
         };
 
         let client = Client { pool };
-        let pong: String = client.raw_command(&("PING",)).await?;
-        if pong != "PONG" {
-            return Err(ErrorKind::PingPongFailed.into());
-        }
+        // to validate connection info and fetch server hello
+        client.connection().await?;
 
         Ok(client)
     }
@@ -186,8 +199,8 @@ impl Builder {
         self
     }
 
-    pub fn ping_needed_timeout(mut self, timeout: Duration) -> Self {
-        self.ping_needed_timeout = Some(timeout);
+    pub fn ping_timeout(mut self, timeout: Duration) -> Self {
+        self.ping_timeout = Some(timeout);
         self
     }
 }
@@ -216,10 +229,6 @@ impl<T: Connector> managed::Manager for Manager<T> {
         }
         Ok(())
     }
-
-    fn detach(&self, _conn: &mut Self::Type) {
-        // do nothing
-    }
 }
 
 impl From<de::Error> for Error {
@@ -237,5 +246,40 @@ impl From<connection::Error> for Error {
 impl From<ErrorKind> for Error {
     fn from(err: ErrorKind) -> Self {
         Box::new(err).into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Error;
+
+    macro_rules! test_client {
+        () => {
+            match std::env::var("REDIS_URL") {
+                Ok(url) => crate::Client::builder(1)
+                    .acquire_timeout(std::time::Duration::from_secs(3))
+                    .bind(&url)
+                    .await
+                    .unwrap(),
+                Err(_) => return Ok(()),
+            }
+        };
+    }
+
+    #[tokio::test]
+    async fn command_canceled() -> Result<(), Error> {
+        let client = test_client!();
+
+        {
+            // to emulate canceled command
+            let mut conn = client.connection().await?;
+            conn.send(("PING", "a")).await?;
+        }
+        {
+            let b: String = client.raw_command(("PING", "b")).await?;
+            assert_eq!("b", b);
+        }
+
+        Ok(())
     }
 }
