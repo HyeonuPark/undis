@@ -1,9 +1,13 @@
 use std::fmt::Debug;
 use std::marker::Unpin;
 use std::net::SocketAddr;
+#[cfg(unix)]
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
+#[cfg(unix)]
+use tokio::net::UnixStream;
 use tokio::net::{lookup_host, TcpStream};
 
 use crate::connection::Error;
@@ -18,6 +22,11 @@ pub trait Connector: Send + Sync {
 #[derive(Debug)]
 pub struct TcpConnector {
     addr: SocketAddr,
+}
+
+#[cfg(unix)]
+pub struct UnixConnector {
+    path: PathBuf,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -48,5 +57,24 @@ impl Connector for TcpConnector {
 
     async fn connect(&self) -> Result<Self::Connection, Error> {
         Ok(TcpStream::connect(self.addr).await?)
+    }
+}
+
+#[cfg(unix)]
+impl UnixConnector {
+    pub fn new<P: AsRef<Path>>(path: P) -> Self {
+        UnixConnector {
+            path: path.as_ref().to_owned(),
+        }
+    }
+}
+
+#[cfg(unix)]
+#[async_trait]
+impl Connector for UnixConnector {
+    type Connection = UnixStream;
+
+    async fn connect(&self) -> Result<Self::Connection, Error> {
+        Ok(UnixStream::connect(&self.path).await?)
     }
 }

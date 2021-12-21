@@ -29,6 +29,9 @@ pub struct Builder {
     acquire_timeout: Option<Duration>,
     connect_timeout: Option<Duration>,
     ping_timeout: Option<Duration>,
+    auth: Option<(String, String)>,
+    setname: Option<String>,
+    select: Option<u32>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -52,6 +55,9 @@ pub enum ErrorKind {
 #[derive(Debug)]
 struct Manager<T> {
     connector: T,
+    auth: Option<(String, String)>,
+    setname: Option<String>,
+    select: Option<u32>,
     ping_counter: AtomicU64,
     last_hello: RwLock<Option<Arc<Value>>>,
 }
@@ -75,6 +81,9 @@ impl Client<TcpConnector> {
             acquire_timeout: None,
             connect_timeout: None,
             ping_timeout: None,
+            auth: None,
+            setname: None,
+            select: None,
         }
     }
 }
@@ -166,6 +175,9 @@ impl Builder {
     pub async fn build<T: Connector>(self, connector: T) -> Result<Client<T>, Error> {
         let manager = Manager {
             connector,
+            auth: self.auth,
+            setname: self.setname,
+            select: self.select,
             ping_counter: AtomicU64::new(0),
             last_hello: RwLock::default(),
         };
@@ -203,6 +215,21 @@ impl Builder {
         self.ping_timeout = Some(timeout);
         self
     }
+
+    pub fn auth(mut self, username: &str, password: &str) -> Self {
+        self.auth = Some((username.into(), password.into()));
+        self
+    }
+
+    pub fn setname(mut self, clientname: &str) -> Self {
+        self.setname = Some(clientname.into());
+        self
+    }
+
+    pub fn select(mut self, db: u32) -> Self {
+        self.select = Some(db);
+        self
+    }
 }
 
 #[async_trait]
@@ -212,7 +239,15 @@ impl<T: Connector> managed::Manager for Manager<T> {
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
         let conn = self.connector.connect().await?;
-        let (conn, hello) = RawConnection::new(conn).await?;
+        let (conn, hello) = RawConnection::with_args(
+            conn,
+            self.auth
+                .as_ref()
+                .map(|(username, password)| (&username[..], &password[..])),
+            self.setname.as_deref(),
+            self.select,
+        )
+        .await?;
         let hello = Arc::new(hello);
         *self.last_hello.write().unwrap() = Some(hello);
         Ok(conn)

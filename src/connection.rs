@@ -26,13 +26,28 @@ pub enum Error {
 
 impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
     pub async fn new(transport: T) -> Result<(Self, Value), Error> {
+        Self::with_args(transport, None, None, None).await
+    }
+
+    pub async fn with_args(
+        transport: T,
+        auth: Option<(&str, &str)>,
+        setname: Option<&str>,
+        select: Option<u32>,
+    ) -> Result<(Self, Value), Error> {
         let mut chan = Connection {
             transport,
             reader: Reader::new(),
             writer: CommandWriter::new(),
         };
 
-        let resp = chan.raw_command(&("HELLO", 3)).await?;
+        let auth = auth.map(|(username, password)| ("AUTH", username, password));
+        let setname = setname.map(|clientname| ("SETNAME", clientname));
+        let resp = chan.raw_command(&("HELLO", 3, auth, setname)).await?;
+
+        if let Some(db) = select {
+            let serde::de::IgnoredAny = chan.raw_command(&("SELECT", db)).await?;
+        }
 
         Ok((chan, resp))
     }
