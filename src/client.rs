@@ -143,13 +143,13 @@ impl<T: Connector> Clone for Client<T> {
 }
 
 impl<T: Connector> Connection<T> {
-    pub fn detach(self) -> RawConnection<T::Connection> {
+    pub fn detach(self) -> RawConnection<T::Stream> {
         Object::take(self.0)
     }
 }
 
 impl<T: Connector> ops::Deref for Connection<T> {
-    type Target = RawConnection<T::Connection>;
+    type Target = RawConnection<T::Stream>;
 
     fn deref(&self) -> &Self::Target {
         &*self.0
@@ -234,7 +234,7 @@ impl Builder {
 
 #[async_trait]
 impl<T: Connector> managed::Manager for Manager<T> {
-    type Type = RawConnection<T::Connection>;
+    type Type = RawConnection<T::Stream>;
     type Error = Error;
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {

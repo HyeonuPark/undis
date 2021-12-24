@@ -14,9 +14,9 @@ use crate::connection::Error;
 
 #[async_trait]
 pub trait Connector: Send + Sync {
-    type Connection: AsyncRead + AsyncWrite + Debug + Unpin + Send;
+    type Stream: AsyncRead + AsyncWrite + Debug + Unpin + Send;
 
-    async fn connect(&self) -> Result<Self::Connection, Error>;
+    async fn connect(&self) -> Result<Self::Stream, Error>;
 }
 
 #[derive(Debug)]
@@ -53,9 +53,9 @@ impl TcpConnector {
 
 #[async_trait]
 impl Connector for TcpConnector {
-    type Connection = TcpStream;
+    type Stream = TcpStream;
 
-    async fn connect(&self) -> Result<Self::Connection, Error> {
+    async fn connect(&self) -> Result<Self::Stream, Error> {
         Ok(TcpStream::connect(self.addr).await?)
     }
 }
@@ -72,9 +72,9 @@ impl UnixConnector {
 #[cfg(unix)]
 #[async_trait]
 impl Connector for UnixConnector {
-    type Connection = UnixStream;
+    type Stream = UnixStream;
 
-    async fn connect(&self) -> Result<Self::Connection, Error> {
+    async fn connect(&self) -> Result<Self::Stream, Error> {
         Ok(UnixStream::connect(&self.path).await?)
     }
 }
