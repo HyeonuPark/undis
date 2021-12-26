@@ -44,6 +44,10 @@ impl Reader {
         }))
     }
 
+    pub fn peek(&self) -> Option<token::Message<'_>> {
+        self.tok.peek_message()
+    }
+
     pub fn consume(&mut self) {
         self.tok.consume()
     }

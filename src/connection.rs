@@ -1,15 +1,40 @@
 use std::marker::Unpin;
 
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
 
 use crate::resp3::{de, ser_cmd, token, value::Value, CommandWriter, Reader};
 
 #[derive(Debug)]
 pub struct Connection<T> {
     transport: T,
-    reader: Reader,
+    sender: SendCtx,
+    receiver: ReceiveCtx,
+}
+
+#[derive(Debug)]
+pub struct ConnectionSendHalf<T> {
+    transport: WriteHalf<T>,
+    sender: SendCtx,
+}
+
+#[derive(Debug)]
+pub struct ConnectionReceiveHalf<T> {
+    transport: ReadHalf<T>,
+    receiver: ReceiveCtx,
+}
+
+#[derive(Debug)]
+struct SendCtx {
     writer: CommandWriter,
+    count: u64,
+}
+
+#[derive(Debug)]
+struct ReceiveCtx {
+    reader: Reader,
+    count: u64,
+    last_is_push: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -22,6 +47,8 @@ pub enum Error {
     Serialize(#[from] ser_cmd::Error),
     #[error("deserialize error")]
     Deserialize(#[from] de::Error),
+    #[error("invalid message order")]
+    InvalidMessageOrder,
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
@@ -37,8 +64,15 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
     ) -> Result<(Self, Value), Error> {
         let mut chan = Connection {
             transport,
-            reader: Reader::new(),
-            writer: CommandWriter::new(),
+            sender: SendCtx {
+                writer: CommandWriter::new(),
+                count: 0,
+            },
+            receiver: ReceiveCtx {
+                reader: Reader::new(),
+                count: 0,
+                last_is_push: false,
+            },
         };
 
         let auth = auth.map(|(username, password)| ("AUTH", username, password));
@@ -52,32 +86,131 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         Ok((chan, resp))
     }
 
-    pub async fn send<Req: Serialize>(&mut self, request: Req) -> Result<(), Error> {
-        self.transport
-            .write_all(self.writer.write(request)?)
-            .await?;
-        Ok(())
+    pub async fn send<Req: Serialize>(&mut self, request: Req) -> Result<u64, Error> {
+        self.sender.send(&mut self.transport, request).await
     }
 
-    pub async fn receive(&mut self) -> Result<token::Message<'_>, Error> {
-        self.reader.consume();
-
-        loop {
-            self.transport.read_buf(self.reader.buf()).await?;
-            if let Some(_msg) = self.reader.read()? {
-                break;
-            }
-        }
-
-        // at this point the reader always stores the message
-        Ok(self.reader.read().unwrap().unwrap())
+    pub async fn receive(&mut self) -> Result<(token::Message<'_>, Option<u64>), Error> {
+        self.receiver.receive(&mut self.transport).await
     }
 
     pub async fn raw_command<'de, Req: Serialize, Resp: Deserialize<'de>>(
         &'de mut self,
         request: Req,
     ) -> Result<Resp, Error> {
-        self.send(request).await?;
-        Ok(self.receive().await?.deserialize()?)
+        let req_cnt = self.send(request).await?;
+
+        loop {
+            let (_msg, resp_cnt) = self.receive().await?;
+            match resp_cnt {
+                // push message
+                None => continue,
+                // response from some previous request
+                // maybe due to the cancelation
+                Some(cnt) if cnt < req_cnt => continue,
+                // response from future request??
+                Some(cnt) if cnt > req_cnt => return Err(Error::InvalidMessageOrder),
+                // respone from the very request
+                Some(_) => break,
+            }
+        }
+
+        // at this point the receiver always store the non-push message
+        let (msg, _) = self.receiver.peek().unwrap();
+        Ok(msg.deserialize()?)
+    }
+
+    pub fn split(self) -> (ConnectionSendHalf<T>, ConnectionReceiveHalf<T>) {
+        let (read, write) = tokio::io::split(self.transport);
+        (
+            ConnectionSendHalf {
+                transport: write,
+                sender: self.sender,
+            },
+            ConnectionReceiveHalf {
+                transport: read,
+                receiver: self.receiver,
+            },
+        )
+    }
+}
+
+impl<T: AsyncWrite + Unpin> ConnectionSendHalf<T> {
+    pub async fn send<Req: Serialize>(&mut self, request: Req) -> Result<u64, Error> {
+        self.sender.send(&mut self.transport, request).await
+    }
+
+    pub fn is_pair_of(&self, other: &ConnectionReceiveHalf<T>) -> bool {
+        other.transport.is_pair_of(&self.transport)
+    }
+
+    pub fn unsplit(self, other: ConnectionReceiveHalf<T>) -> Connection<T> {
+        let transport = other.transport.unsplit(self.transport);
+
+        Connection {
+            transport,
+            sender: self.sender,
+            receiver: other.receiver,
+        }
+    }
+}
+
+impl<T: AsyncRead + Unpin> ConnectionReceiveHalf<T> {
+    pub async fn receive(&mut self) -> Result<(token::Message<'_>, Option<u64>), Error> {
+        self.receiver.receive(&mut self.transport).await
+    }
+}
+
+impl SendCtx {
+    async fn send<T, Req>(&mut self, transport: &mut T, request: Req) -> Result<u64, Error>
+    where
+        T: AsyncWrite + Unpin,
+        Req: Serialize,
+    {
+        let out = self.writer.write(request)?;
+        transport.write_all(out).await?;
+
+        self.count += 1;
+        Ok(self.count)
+    }
+}
+
+impl ReceiveCtx {
+    async fn receive<T>(
+        &mut self,
+        transport: &mut T,
+    ) -> Result<(token::Message<'_>, Option<u64>), Error>
+    where
+        T: AsyncRead + Unpin,
+    {
+        self.reader.consume();
+
+        while self.reader.read()?.is_none() {
+            transport.read_buf(self.reader.buf()).await?;
+        }
+
+        // at this point the reader always stores the message
+        let msg = self.reader.peek().unwrap();
+
+        // .read() never returns empty message
+        let count = match msg.clone().next().unwrap() {
+            // server push message doesn't belong to the request-response mapping
+            token::Token::Push(_) => {
+                self.last_is_push = true;
+                None
+            }
+            _ => {
+                self.last_is_push = false;
+                self.count += 1;
+                Some(self.count)
+            }
+        };
+
+        Ok((msg, count))
+    }
+
+    fn peek(&self) -> Option<(token::Message<'_>, Option<u64>)> {
+        let count = (!self.last_is_push).then(|| self.count);
+        self.reader.peek().map(|msg| (msg, count))
     }
 }

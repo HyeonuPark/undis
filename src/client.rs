@@ -101,15 +101,8 @@ impl<T: Connector> Client<T> {
         &self,
         request: Req,
     ) -> Result<Resp, Error> {
-        let conn = self.connection().await?;
-        let mut conn = scopeguard::guard(conn, |conn| {
-            // remove the connection which reported the error
-            conn.detach();
-        });
-
+        let mut conn = self.connection().await?;
         let res = conn.raw_command(request).await?;
-        // don't remove the connection without error
-        scopeguard::ScopeGuard::into_inner(conn);
         Ok(res)
     }
 

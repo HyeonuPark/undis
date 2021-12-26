@@ -430,6 +430,7 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
     {
         match self.tok()? {
             Kind::Map(len) => visitor.visit_map(self.seq(len)),
+            Kind::Push(len) => visitor.visit_map(self.seq(Some(len))),
             other => invalid_token(other, "map"),
         }
     }
@@ -448,7 +449,7 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
                 visitor.visit_seq(self.seq(Some(seq_len)))
             }
             Kind::Array(None) => visitor.visit_seq(self.seq(Some(fields.len()))),
-            Kind::Map(Some(map_len)) if fields.len() == map_len => {
+            Kind::Map(Some(map_len)) | Kind::Push(map_len) if fields.len() == map_len => {
                 visitor.visit_map(self.seq(Some(map_len)))
             }
             Kind::Map(None) => visitor.visit_map(self.seq(Some(fields.len()))),

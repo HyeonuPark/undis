@@ -300,7 +300,11 @@ impl Tokenizer {
             token.process_stack(&mut self.stack_remainings)?;
         }
 
-        Ok(Message {
+        Ok(self.peek_message().unwrap())
+    }
+
+    pub fn peek_message(&self) -> Option<Message<'_>> {
+        self.stack_remainings.is_empty().then(|| Message {
             buf: &self.buf[..self.parsed_offset],
             length: self.parsed_tokens,
         })
