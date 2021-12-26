@@ -31,4 +31,4 @@ This project is currently under heavy development. Use it at your own risk.
 Undis is distributed under the terms of both the MIT license and the
 Apache License (Version 2.0).
 
-See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) for details.
+See [LICENSE-APACHE](https://github.com/HyeonuPark/undis/blob/main/LICENSE-APACHE) and [LICENSE-MIT](https://github.com/HyeonuPark/undis/blob/main/LICENSE-MIT) for details.
