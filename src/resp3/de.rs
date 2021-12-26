@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::num::NonZeroUsize;
 use std::{fmt, str};
 
 use paste::paste;
@@ -125,6 +126,11 @@ impl<'a, 'de> Deserializer<'a, 'de> {
     }
 
     fn consume(&mut self, amt: usize) -> Result<(), Error> {
+        let amt = match NonZeroUsize::new(amt) {
+            Some(amt) => amt,
+            // consume zero == do nothing
+            None => return Ok(()),
+        };
         let mut stack = vec![Some(amt)];
 
         while !stack.is_empty() {

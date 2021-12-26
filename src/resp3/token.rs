@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use bytes::{Buf, BufMut};
 use memchr::memmem::Finder;
 use once_cell::sync::Lazy;
@@ -38,7 +40,7 @@ pub struct Tokenizer {
     buf: Vec<u8>,
     parsed_offset: usize,
     parsed_tokens: usize,
-    stack_remainings: Vec<Option<usize>>,
+    stack_remainings: Vec<Option<NonZeroUsize>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -55,8 +57,6 @@ pub enum Error {
     ParseBoolFailed,
     #[error("found stream END token outside from the streaming context")]
     UnexpectedStreamEnd,
-    #[error("recursion stack is manually modified during processing tokens")]
-    RecursionStackModified,
 }
 
 const CRLF: &[u8] = b"\r\n";
@@ -81,6 +81,11 @@ const PUSH: u8 = b'>';
 const BIG_NUMBER: u8 = b'(';
 const STREAM_START: u8 = b'?';
 const STREAM_END: u8 = b'.';
+
+const ONE: NonZeroUsize = match NonZeroUsize::new(1) {
+    Some(one) => one,
+    None => panic!("surprisingly, 1 is zero"),
+};
 
 impl<'a> Token<'a> {
     pub fn put<T: BufMut>(&self, buf: &mut T) {
@@ -210,7 +215,7 @@ impl<'a> Token<'a> {
     /// where `amt` is the amount of token trees
     /// and keep call this function with new tokens
     /// until the stack being emptied.
-    pub fn process_stack(&self, stack: &mut Vec<Option<usize>>) -> Result<(), Error> {
+    pub fn process_stack(&self, stack: &mut Vec<Option<NonZeroUsize>>) -> Result<(), Error> {
         let is_attr = matches!(self, Attribute(_));
         let is_stream_end = matches!(self, StreamEnd);
 
@@ -223,27 +228,32 @@ impl<'a> Token<'a> {
                 (false, None) => stack.push(None),
                 // unexpected stream end token
                 (true, Some(_)) => return Err(Error::UnexpectedStreamEnd),
-                // 0 should never be pushed
-                (false, Some(0)) => return Err(Error::RecursionStackModified),
-                // the finite sequence is ended
-                (false, Some(1)) => {}
-                // advancing the finite sequence
-                (false, Some(len)) => stack.push(Some(len - 1)),
+                (false, Some(len)) => match NonZeroUsize::new(len.get() - 1) {
+                    // the finite sequence is ended
+                    None => {}
+                    // advancing the finite sequence
+                    Some(len) => stack.push(Some(len)),
+                },
             }
         }
 
         // push the protocol stack frame if needed
         match self {
-            // scalars and empty sequences don't push any frame
-            Array(Some(0)) | Blob(Some(_)) | BlobStream(_) | Simple(_) | SimpleError(_)
-            | Number(_) | Null | Double(_) | Boolean(_) | BlobError(_) | Verbatim(_)
-            | Map(Some(0)) | Set(Some(0)) | Attribute(0) | Push(0) | BigNumber(_) | StreamEnd => {}
-            // finite sequences push their length
+            // scalars don't push any frame
+            Blob(Some(_)) | BlobStream(_) | Simple(_) | SimpleError(_) | Number(_) | Null
+            | Double(_) | Boolean(_) | BlobError(_) | Verbatim(_) | BigNumber(_) | StreamEnd => {}
+            // sequences push frame if they're not empty
             Array(Some(len)) | Set(Some(len)) | Attribute(len) | Push(len) => {
-                stack.push(Some(*len))
+                if let Some(len) = NonZeroUsize::new(*len) {
+                    stack.push(Some(len))
+                }
             }
             // Map pushes the double of its length
-            Map(Some(len)) => stack.push(Some(len * 2)),
+            Map(Some(len)) => {
+                if let Some(len) = NonZeroUsize::new(len * 2) {
+                    stack.push(Some(len))
+                }
+            }
             // streaming sequence push frame without length
             Array(None) | Blob(None) | Map(None) | Set(None) => stack.push(None),
         }
@@ -278,7 +288,7 @@ impl Tokenizer {
             buf: vec![],
             parsed_offset: 0,
             parsed_tokens: 0,
-            stack_remainings: vec![Some(1)], // to parse 1 msg on start
+            stack_remainings: vec![Some(ONE)], // to parse 1 msg on start
         }
     }
 
@@ -315,13 +325,13 @@ impl Tokenizer {
             self.buf.drain(..self.parsed_offset);
             self.parsed_tokens = 0;
             self.parsed_offset = 0;
-            self.stack_remainings.push(Some(1)); // to parse 1 msg next time
+            self.stack_remainings.push(Some(ONE)); // to parse 1 msg next time
         }
     }
 
     pub fn reset(&mut self) {
         self.stack_remainings.clear();
-        self.stack_remainings.push(Some(1));
+        self.stack_remainings.push(Some(ONE));
         self.buf.clear();
         self.parsed_tokens = 0;
         self.parsed_offset = 0;
