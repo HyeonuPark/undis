@@ -25,6 +25,7 @@ pub struct TcpConnector {
 }
 
 #[cfg(unix)]
+#[derive(Debug)]
 pub struct UnixConnector {
     path: PathBuf,
 }

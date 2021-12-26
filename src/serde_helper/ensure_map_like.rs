@@ -5,7 +5,7 @@ use serde::ser;
 pub struct EnsureMapLike<T>(pub T);
 
 #[derive(Debug)]
-pub struct EnsureMapLikeSerializer<S>(S);
+struct EnsureMapLikeSerializer<S>(S);
 
 impl<T: ser::Serialize> ser::Serialize for EnsureMapLike<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

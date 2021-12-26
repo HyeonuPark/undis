@@ -5,7 +5,7 @@ use serde::ser;
 pub struct EnsureScalar<T>(pub T);
 
 #[derive(Debug)]
-pub struct EnsureScalarSerializer<S>(S);
+struct EnsureScalarSerializer<S>(S);
 
 impl<T: ser::Serialize> ser::Serialize for EnsureScalar<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

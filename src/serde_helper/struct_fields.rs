@@ -1,6 +1,6 @@
 use serde::{de, forward_to_deserialize_any};
 
-pub fn get_struct_fields<'de, T: de::Deserialize<'de>>() -> Option<&'static [&'static str]> {
+pub fn extract_struct_fields<'de, T: de::Deserialize<'de>>() -> Option<&'static [&'static str]> {
     let mut res = None;
 
     let _ = T::deserialize(GetStructFieldFakeDeserializer { out: &mut res });
@@ -9,13 +9,13 @@ pub fn get_struct_fields<'de, T: de::Deserialize<'de>>() -> Option<&'static [&'s
 }
 
 #[derive(Debug)]
-pub struct GetStructFieldFakeDeserializer<'a> {
+struct GetStructFieldFakeDeserializer<'a> {
     out: &'a mut Option<&'static [&'static str]>,
 }
 
 #[derive(Debug, thiserror::Error)]
 #[error("as expected")]
-pub struct NormalError;
+struct NormalError;
 
 impl de::Error for NormalError {
     fn custom<T>(_: T) -> Self

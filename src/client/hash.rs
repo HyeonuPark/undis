@@ -1,7 +1,7 @@
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::connector::Connector;
-use crate::serde_helper::{get_struct_fields, EnsureMapLike, EnsureScalar, EnsureSequence};
+use crate::serde_helper::{extract_struct_fields, EnsureMapLike, EnsureScalar, EnsureSequence};
 
 use super::{Client, Error};
 
@@ -262,7 +262,7 @@ impl<T: Connector> Client<T> {
         K: Serialize,
         R: DeserializeOwned,
     {
-        let fields = get_struct_fields::<R>().ok_or_else(|| {
+        let fields = extract_struct_fields::<R>().ok_or_else(|| {
             super::ErrorKind::Connection(
                 crate::resp3::ser_cmd::Error::Custom(
                     "hmget_struct can only return struct with named fields \

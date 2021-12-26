@@ -64,7 +64,18 @@ struct Manager<T> {
 }
 
 impl Client<TcpConnector> {
-    /// Start client builder.
+    /// Create a client with default configurations.
+    ///
+    /// If you need more tweaks use [`Client::builder()`](Self::builder) instead.
+    ///
+    /// # Panic
+    ///
+    /// It panics if `connection_limit` is zero.
+    pub async fn new(connection_limit: usize, addr: &str) -> Result<Self, Error> {
+        Self::builder(connection_limit).bind(addr).await
+    }
+
+    /// Create a client builder.
     ///
     /// The builder from this method is not limited to the `TcpConnector`.
     ///

@@ -5,7 +5,7 @@ use serde::ser;
 pub struct EnsureSequence<T>(pub T);
 
 #[derive(Debug)]
-pub struct EnsureSequenceSerializer<S>(S);
+struct EnsureSequenceSerializer<S>(S);
 
 impl<T: ser::Serialize> ser::Serialize for EnsureSequence<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
