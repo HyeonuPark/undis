@@ -13,6 +13,9 @@ use crate::resp3::{de, value::Value};
 
 pub mod hash;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug)]
 pub struct Client<T: Connector = TcpConnector> {
     pool: Pool<Manager<T>>,
@@ -272,40 +275,5 @@ impl From<connection::Error> for Error {
 impl From<ErrorKind> for Error {
     fn from(err: ErrorKind) -> Self {
         Box::new(err).into()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Error;
-
-    macro_rules! test_client {
-        () => {
-            match std::env::var("REDIS_URL") {
-                Ok(url) => crate::Client::builder(1)
-                    .acquire_timeout(std::time::Duration::from_secs(3))
-                    .bind(&url)
-                    .await
-                    .unwrap(),
-                Err(_) => return Ok(()),
-            }
-        };
-    }
-
-    #[tokio::test]
-    async fn command_canceled() -> Result<(), Error> {
-        let client = test_client!();
-
-        {
-            // to emulate canceled command
-            let mut conn = client.connection().await?;
-            conn.send(("PING", "a")).await?;
-        }
-        {
-            let b: String = client.raw_command(("PING", "b")).await?;
-            assert_eq!("b", b);
-        }
-
-        Ok(())
     }
 }

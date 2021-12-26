@@ -444,21 +444,16 @@ impl<'a, 'de> de::Deserializer<'de> for Deserializer<'a, 'de> {
     fn deserialize_struct<V>(
         mut self,
         _name: &'static str,
-        fields: &'static [&'static str],
+        _fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
         match self.tok()? {
-            Kind::Array(Some(seq_len)) if fields.len() == seq_len => {
-                visitor.visit_seq(self.seq(Some(seq_len)))
-            }
-            Kind::Array(None) => visitor.visit_seq(self.seq(Some(fields.len()))),
-            Kind::Map(Some(map_len)) | Kind::Push(map_len) if fields.len() == map_len => {
-                visitor.visit_map(self.seq(Some(map_len)))
-            }
-            Kind::Map(None) => visitor.visit_map(self.seq(Some(fields.len()))),
+            Kind::Array(len) => visitor.visit_seq(self.seq(len)),
+            Kind::Map(len) => visitor.visit_map(self.seq(len)),
+            Kind::Push(len) => visitor.visit_map(self.seq(Some(len))),
             other => invalid_token(other, "struct"),
         }
     }
@@ -650,16 +645,12 @@ impl<'a, 'de> de::VariantAccess<'de> for SeqAccess<'a, 'de> {
 
     fn struct_variant<V>(
         self,
-        fields: &'static [&'static str],
+        _fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        if self.len.map_or(false, |len| len != fields.len()) {
-            return Err(Error::LengthMismatch);
-        }
-
         visitor.visit_seq(self)
     }
 }
@@ -785,16 +776,12 @@ impl<'a, 'de> de::Deserializer<'de> for SeqAccess<'a, 'de> {
     fn deserialize_struct<V>(
         self,
         _name: &'static str,
-        fields: &'static [&'static str],
+        _fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        if self.len.map_or(false, |len| len != fields.len()) {
-            return Err(Error::LengthMismatch);
-        }
-
         visitor.visit_seq(self)
     }
 
