@@ -1,8 +1,8 @@
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::connector::Connector;
+use crate::serde_helper::{get_struct_fields, EnsureMapLike, EnsureScalar, EnsureSequence};
 
-use super::serde_helper::{get_struct_fields, EnsureMapLike, EnsureScalar, EnsureSequence};
 use super::{Client, Error};
 
 impl<T: Connector> Client<T> {

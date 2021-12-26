@@ -11,8 +11,6 @@ use crate::connection::{self, Connection as RawConnection};
 use crate::connector::{Connector, LookupError, TcpConnector};
 use crate::resp3::{de, value::Value};
 
-pub mod serde_helper;
-
 pub mod hash;
 
 #[derive(Debug)]
