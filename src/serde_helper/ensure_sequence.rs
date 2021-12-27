@@ -1,6 +1,12 @@
 use paste::paste;
 use serde::ser;
 
+/// Wrapper to ensure to serialize only sequence formats.
+///
+/// If the `T` is serialized into sequence format(e.g. Vec, HashSet or array)
+/// or scalar format(which can be considered as a single element sequence),
+/// `EnsureSequence(T)` is a no-op wrapper on serialization.
+/// Otherwise it fails to be serialized and returns error.
 #[derive(Debug)]
 pub struct EnsureSequence<T>(pub T);
 

@@ -1,6 +1,11 @@
 use paste::paste;
 use serde::ser;
 
+/// Wrapper to ensure to serialize only map-like formats.
+///
+/// If the `T` is serialized into map-like format(e.g. HashMap or struct with named fields),
+/// `EnsureMapLike(T)` is a no-op wrapper on serialization.
+/// Otherwise it fails to be serialized and returns error.
 #[derive(Debug)]
 pub struct EnsureMapLike<T>(pub T);
 

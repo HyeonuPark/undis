@@ -1,6 +1,11 @@
 use paste::paste;
 use serde::ser;
 
+/// Wrapper to ensure to serialize only scalar formats.
+///
+/// If the `T` is serialized into scalar format(e.g. string, bytes, number, boolean or unit),
+/// `EnsureScalar(T)` is a no-op wrapper on serialization.
+/// Otherwise it fails to be serialized and returns error.
 #[derive(Debug)]
 pub struct EnsureScalar<T>(pub T);
 

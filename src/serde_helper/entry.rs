@@ -2,6 +2,15 @@ use std::marker::PhantomData;
 
 use serde::{Deserialize, Serialize};
 
+/// `Entry(key, value)` is a single-entry map for the serde formats.
+///
+/// ```
+/// # use undis::serde_helper::Entry;
+/// let json = r#"{"foo":42}"#;
+/// let entry = Entry("foo".to_owned(), 42);
+/// assert_eq!(json, serde_json::to_string(&entry).unwrap());
+/// assert_eq!(entry, serde_json::from_str(json).unwrap());
+/// ```
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Entry<K, V>(pub K, pub V);
 

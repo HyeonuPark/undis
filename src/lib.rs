@@ -9,6 +9,7 @@
 //!
 //! ```
 //! # #[tokio::main(flavor = "current_thread")] async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let addr = &std::env::var("REDIS_URL").unwrap_or_else(|_| std::process::exit(0));
 //! use undis::Client;
 //! use serde::{Serialize, Deserialize};
 //!
@@ -19,7 +20,7 @@
 //!     baz: bool,
 //! }
 //!
-//! let client = Client::new(20, "localhost:6379").await?;
+//! let client = Client::new(20, addr).await?;
 //!
 //! let value = Table { foo: "foo".into(), bar: 42, baz: true };
 //! client.hset("my-key", &value).await?;

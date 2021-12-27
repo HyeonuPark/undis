@@ -1,3 +1,7 @@
+//! The loosely typed Value enum to represent RESP3 value.
+//!
+//! For more information, see the [`Value`](self::Value) type.
+
 use std::cmp::{Eq, Ord, PartialEq, PartialOrd};
 use std::fmt;
 use std::hash::Hash;
@@ -6,30 +10,51 @@ use bstr::BString;
 use indexmap::IndexMap;
 use serde::de;
 
+// TODO: impl Serialize/Deserializer for Value
+
+/// Represents any valid RESP3 value.
+///
+/// This is useful to represent some flexible message like `HELLO` response
+/// or to _see_ the structure of some [`.raw_command()`](crate::Client::raw_command) response.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
+    /// Null value.
     Null,
+    /// Binary string. Can be obtained from simple string, blog string, blog string stream.
+    /// It conventionally but not necessarily is a UTF-8 encoded string.
     Blob(BString),
+    /// Boolean value.
     Boolean(bool),
+    /// Integer value in the form of i128.
+    /// This type doesn't supports numbers which can't be represented within this range
+    /// though the RESP3 protocol itself supports arbitrary big integers.
     Number(i128),
+    /// Double precision floating point number which can't be NaN.
     Double(Double),
+    /// Array of values.
     Array(Vec<Value>),
+    /// Map of values, keyed by binary strings.
+    /// Order is preserved to print hello message nicely.
     Map(IndexMap<BString, Value>),
 }
 
+/// Double precision floating point number which can't be NaN.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Double(f64);
 
 impl Double {
+    /// Construct `Double` from the `f64`.
+    ///
     /// # Panic
     ///
-    /// Panics if the `num` is NaN
+    /// Panics if the `num` is NaN.
     pub fn new(num: f64) -> Self {
         assert!(!num.is_nan(), "RESP3 Double can't be NaN");
         Double(num)
     }
 
-    pub fn as_f64(self) -> f64 {
+    /// Get the underlying `f64` value.
+    pub fn get(self) -> f64 {
         self.0
     }
 }

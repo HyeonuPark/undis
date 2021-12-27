@@ -1,3 +1,5 @@
+//! Helper tools for serde-related situations.
+
 mod ensure_map_like;
 mod ensure_scalar;
 mod ensure_sequence;

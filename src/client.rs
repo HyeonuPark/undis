@@ -1,3 +1,7 @@
+//! Redis client.
+//!
+//! For more information, see the [`Client`](self::Client) type.
+
 use std::ops;
 use std::sync::atomic::{self, AtomicU64};
 use std::sync::{Arc, RwLock};

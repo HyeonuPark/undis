@@ -1,15 +1,27 @@
 use serde::{de, forward_to_deserialize_any};
 
+/// Extract fields names from `T` if it's a `#[derive(Deserialize)]`-ed struct with named fields.
+///
+/// ```
+/// # use undis::serde_helper::extract_struct_fields;
+/// #[derive(serde::Deserialize)]
+/// struct MyStruct {
+///     foo: String,
+///     bar: i32,
+///     baz: bool,
+/// }
+/// assert_eq!(Some(&["foo", "bar", "baz"][..]), extract_struct_fields::<MyStruct>());
+/// ```
 pub fn extract_struct_fields<'de, T: de::Deserialize<'de>>() -> Option<&'static [&'static str]> {
     let mut res = None;
 
-    let _ = T::deserialize(GetStructFieldFakeDeserializer { out: &mut res });
+    let _ = T::deserialize(FakeDeserializer { out: &mut res });
 
     res
 }
 
 #[derive(Debug)]
-struct GetStructFieldFakeDeserializer<'a> {
+struct FakeDeserializer<'a> {
     out: &'a mut Option<&'static [&'static str]>,
 }
 
@@ -26,7 +38,7 @@ impl de::Error for NormalError {
     }
 }
 
-impl<'a, 'de> de::Deserializer<'de> for GetStructFieldFakeDeserializer<'a> {
+impl<'a, 'de> de::Deserializer<'de> for FakeDeserializer<'a> {
     type Error = NormalError;
 
     fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
