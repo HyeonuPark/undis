@@ -3,7 +3,7 @@ use std::marker::Unpin;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
 
-use crate::resp3::{de, ser_cmd, token, value::Value, CommandWriter, Reader};
+use crate::resp3::{de, from_msg, ser_cmd, token, write_cmd, Reader, Value};
 
 #[derive(Debug)]
 pub struct Connection<T> {
@@ -26,7 +26,7 @@ pub struct ConnectionReceiveHalf<T> {
 
 #[derive(Debug)]
 struct SendCtx {
-    writer: CommandWriter,
+    buf: Vec<u8>,
     count: u64,
 }
 
@@ -65,7 +65,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         let mut chan = Connection {
             transport,
             sender: SendCtx {
-                writer: CommandWriter::new(),
+                buf: Vec::new(),
                 count: 0,
             },
             receiver: ReceiveCtx {
@@ -117,7 +117,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
 
         // at this point the receiver always store the non-push message
         let (msg, _) = self.receiver.peek().unwrap();
-        Ok(msg.deserialize()?)
+        Ok(from_msg(msg)?)
     }
 
     pub fn split(self) -> (ConnectionSendHalf<T>, ConnectionReceiveHalf<T>) {
@@ -167,8 +167,9 @@ impl SendCtx {
         T: AsyncWrite + Unpin,
         Req: Serialize,
     {
-        let out = self.writer.write(request)?;
-        transport.write_all(out).await?;
+        self.buf.clear();
+        write_cmd(&mut self.buf, &request)?;
+        transport.write_all(&self.buf).await?;
 
         self.count += 1;
         Ok(self.count)

@@ -1,25 +1,32 @@
 use std::fmt;
 
+use bytes::BufMut;
 use paste::paste;
 use serde::ser::{self, Serialize};
 
 use super::token::Token;
 
-#[derive(Debug)]
-pub struct CommandSerializer<'a> {
-    buf: &'a mut Vec<u8>,
-    count: usize,
+pub fn write_cmd<B, T>(buf: &mut B, value: &T) -> Result<(), Error>
+where
+    B: BufMut,
+    T: serde::Serialize,
+{
+    value.serialize(CommandSerializer::new(buf))
 }
 
 #[derive(Debug)]
-pub struct FlatArraySerializer<'a> {
-    buf: &'a mut Vec<u8>,
-    count: &'a mut usize,
+pub struct CommandSerializer<'a, B: BufMut> {
+    buf: &'a mut B,
 }
 
 #[derive(Debug)]
-pub struct BlobSerializer<'a> {
-    buf: &'a mut Vec<u8>,
+pub struct FlatArraySerializer<'a, B: BufMut> {
+    buf: &'a mut B,
+}
+
+#[derive(Debug)]
+pub struct BlobSerializer<'a, B: BufMut> {
+    buf: &'a mut B,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -41,49 +48,37 @@ impl ser::Error for Error {
     }
 }
 
-impl<'a> CommandSerializer<'a> {
-    pub fn new(buf: &'a mut Vec<u8>) -> Self {
-        buf.clear();
+impl<'a, B: BufMut> CommandSerializer<'a, B> {
+    pub fn new(buf: &'a mut B) -> Self {
         Token::Array(None).put(buf);
-        CommandSerializer { buf, count: 0 }
+        CommandSerializer { buf }
     }
 
-    fn seq(&mut self) -> FlatArraySerializer<'_> {
-        FlatArraySerializer {
-            buf: self.buf,
-            count: &mut self.count,
-        }
+    fn seq(&mut self) -> FlatArraySerializer<'_, B> {
+        FlatArraySerializer { buf: self.buf }
     }
 
     fn put<T: AsRef<[u8]> + ?Sized>(&mut self, blob: &T) {
-        self.count += 1;
         Token::Blob(Some(blob.as_ref())).put(self.buf);
     }
 
     fn done(self) -> Result<(), Error> {
-        if self.count <= 9 {
-            self.buf[1] = b'0' + self.count as u8;
-        } else {
-            Token::StreamEnd.put(self.buf);
-        }
-
+        Token::StreamEnd.put(self.buf);
         Ok(())
     }
 }
 
-impl<'a> FlatArraySerializer<'a> {
+impl<'a, B: BufMut> FlatArraySerializer<'a, B> {
     fn put<T: AsRef<[u8]> + ?Sized>(&mut self, blob: &T) {
-        *self.count += 1;
         Token::Blob(Some(blob.as_ref())).put(self.buf);
     }
 
-    fn blob(&mut self) -> BlobSerializer<'_> {
-        *self.count += 1;
+    fn blob(&mut self) -> BlobSerializer<'_, B> {
         BlobSerializer { buf: self.buf }
     }
 }
 
-impl<'a> BlobSerializer<'a> {
+impl<'a, B: BufMut> BlobSerializer<'a, B> {
     fn put<T: AsRef<[u8]> + ?Sized>(&mut self, blob: &T) {
         Token::Blob(Some(blob.as_ref())).put(self.buf);
     }
@@ -97,7 +92,7 @@ macro_rules! unsupported_not_seq {
     )*}};
 }
 
-impl<'a> ser::Serializer for CommandSerializer<'a> {
+impl<'a, B: BufMut> ser::Serializer for CommandSerializer<'a, B> {
     type Ok = ();
     type Error = Error;
     type SerializeSeq = Self;
@@ -222,7 +217,7 @@ impl<'a> ser::Serializer for CommandSerializer<'a> {
     }
 }
 
-impl<'a> ser::SerializeSeq for CommandSerializer<'a> {
+impl<'a, B: BufMut> ser::SerializeSeq for CommandSerializer<'a, B> {
     type Ok = ();
     type Error = Error;
 
@@ -238,7 +233,7 @@ impl<'a> ser::SerializeSeq for CommandSerializer<'a> {
     }
 }
 
-impl<'a> ser::SerializeTuple for CommandSerializer<'a> {
+impl<'a, B: BufMut> ser::SerializeTuple for CommandSerializer<'a, B> {
     type Ok = ();
     type Error = Error;
 
@@ -254,7 +249,7 @@ impl<'a> ser::SerializeTuple for CommandSerializer<'a> {
     }
 }
 
-impl<'a> ser::SerializeTupleStruct for CommandSerializer<'a> {
+impl<'a, B: BufMut> ser::SerializeTupleStruct for CommandSerializer<'a, B> {
     type Ok = ();
     type Error = Error;
 
@@ -270,7 +265,7 @@ impl<'a> ser::SerializeTupleStruct for CommandSerializer<'a> {
     }
 }
 
-impl<'a> ser::SerializeTupleVariant for CommandSerializer<'a> {
+impl<'a, B: BufMut> ser::SerializeTupleVariant for CommandSerializer<'a, B> {
     type Ok = ();
     type Error = Error;
 
@@ -294,7 +289,7 @@ macro_rules! serialize_single {
     )*}};
 }
 
-impl<'a> ser::Serializer for FlatArraySerializer<'a> {
+impl<'a, B: BufMut> ser::Serializer for FlatArraySerializer<'a, B> {
     type Ok = ();
     type Error = Error;
     type SerializeSeq = Self;
@@ -421,7 +416,7 @@ impl<'a> ser::Serializer for FlatArraySerializer<'a> {
     }
 }
 
-impl<'a> ser::SerializeSeq for FlatArraySerializer<'a> {
+impl<'a, B: BufMut> ser::SerializeSeq for FlatArraySerializer<'a, B> {
     type Ok = ();
     type Error = Error;
 
@@ -437,7 +432,7 @@ impl<'a> ser::SerializeSeq for FlatArraySerializer<'a> {
     }
 }
 
-impl<'a> ser::SerializeTuple for FlatArraySerializer<'a> {
+impl<'a, B: BufMut> ser::SerializeTuple for FlatArraySerializer<'a, B> {
     type Ok = ();
     type Error = Error;
 
@@ -453,7 +448,7 @@ impl<'a> ser::SerializeTuple for FlatArraySerializer<'a> {
     }
 }
 
-impl<'a> ser::SerializeTupleStruct for FlatArraySerializer<'a> {
+impl<'a, B: BufMut> ser::SerializeTupleStruct for FlatArraySerializer<'a, B> {
     type Ok = ();
     type Error = Error;
 
@@ -469,7 +464,7 @@ impl<'a> ser::SerializeTupleStruct for FlatArraySerializer<'a> {
     }
 }
 
-impl<'a> ser::SerializeTupleVariant for FlatArraySerializer<'a> {
+impl<'a, B: BufMut> ser::SerializeTupleVariant for FlatArraySerializer<'a, B> {
     type Ok = ();
     type Error = Error;
 
@@ -485,7 +480,7 @@ impl<'a> ser::SerializeTupleVariant for FlatArraySerializer<'a> {
     }
 }
 
-impl<'a> ser::SerializeMap for FlatArraySerializer<'a> {
+impl<'a, B: BufMut> ser::SerializeMap for FlatArraySerializer<'a, B> {
     type Ok = ();
     type Error = Error;
 
@@ -508,7 +503,7 @@ impl<'a> ser::SerializeMap for FlatArraySerializer<'a> {
     }
 }
 
-impl<'a> ser::SerializeStruct for FlatArraySerializer<'a> {
+impl<'a, B: BufMut> ser::SerializeStruct for FlatArraySerializer<'a, B> {
     type Ok = ();
     type Error = Error;
 
@@ -530,7 +525,7 @@ impl<'a> ser::SerializeStruct for FlatArraySerializer<'a> {
     }
 }
 
-impl<'a> ser::SerializeStructVariant for FlatArraySerializer<'a> {
+impl<'a, B: BufMut> ser::SerializeStructVariant for FlatArraySerializer<'a, B> {
     type Ok = ();
     type Error = Error;
 
@@ -572,7 +567,7 @@ macro_rules! serialize_float {
     )*}};
 }
 
-impl<'a> ser::Serializer for BlobSerializer<'a> {
+impl<'a, B: BufMut> ser::Serializer for BlobSerializer<'a, B> {
     type Ok = ();
     type Error = Error;
     type SerializeSeq = ser::Impossible<(), Error>;

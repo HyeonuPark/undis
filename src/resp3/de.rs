@@ -8,6 +8,10 @@ use serde::de;
 use super::parse_str;
 use super::token::{Message, Token};
 
+pub fn from_msg<'de, T: serde::Deserialize<'de>>(mut msg: Message<'de>) -> Result<T, Error> {
+    T::deserialize(Deserializer::new(&mut msg))
+}
+
 #[derive(Debug)]
 pub struct Deserializer<'a, 'de> {
     msg: &'a mut Message<'de>,

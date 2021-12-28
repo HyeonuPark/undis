@@ -36,7 +36,7 @@ pub struct Message<'a> {
 }
 
 #[derive(Debug)]
-pub struct Tokenizer {
+pub struct Reader {
     buf: Vec<u8>,
     parsed_offset: usize,
     parsed_tokens: usize,
@@ -282,9 +282,9 @@ impl<'a> AsRef<[u8]> for Message<'a> {
     }
 }
 
-impl Tokenizer {
+impl Reader {
     pub fn new() -> Self {
-        Tokenizer {
+        Reader {
             buf: vec![],
             parsed_offset: 0,
             parsed_tokens: 0,
@@ -292,28 +292,34 @@ impl Tokenizer {
         }
     }
 
-    pub fn write_buf(&mut self) -> &mut impl BufMut {
+    pub fn buf(&mut self) -> &mut impl BufMut {
         &mut self.buf
     }
 
     /// Returns message view stored within the internal buffer on success.
     /// Returns `Err(None)` if more bytes needed to parse.
-    /// To get next message after this call, you need to call `.clear_message()`
+    /// To get next message after this call, you need to call `.consume()`
     /// otherwise the same message would be returned again.
-    pub fn message(&mut self) -> Result<Message<'_>, Option<Error>> {
+    pub fn read(&mut self) -> Result<Option<Message<'_>>, Error> {
         while !self.stack_remainings.is_empty() {
             let mut buf = &self.buf[self.parsed_offset..];
-            let token = next_token(&mut buf)?;
+            let token = match next_token(&mut buf) {
+                Ok(tok) => tok,
+                Err(None) => return Ok(None),
+                Err(Some(err)) => return Err(err),
+            };
             self.parsed_tokens += 1;
             self.parsed_offset = self.buf.len() - buf.len();
 
             token.process_stack(&mut self.stack_remainings)?;
         }
 
-        Ok(self.peek_message().unwrap())
+        let msg = self.peek();
+        assert!(msg.is_some(), "msg should exist at this point");
+        Ok(msg)
     }
 
-    pub fn peek_message(&self) -> Option<Message<'_>> {
+    pub fn peek(&self) -> Option<Message<'_>> {
         self.stack_remainings.is_empty().then(|| Message {
             buf: &self.buf[..self.parsed_offset],
             length: self.parsed_tokens,
@@ -338,7 +344,7 @@ impl Tokenizer {
     }
 }
 
-impl Default for Tokenizer {
+impl Default for Reader {
     fn default() -> Self {
         Self::new()
     }
