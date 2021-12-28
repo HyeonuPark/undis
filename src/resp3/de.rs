@@ -6,15 +6,15 @@ use paste::paste;
 use serde::de;
 
 use super::parse_str;
-use super::token::{Message, Token};
+use super::token::{Message, MessageIter, Token};
 
-pub fn from_msg<'de, T: serde::Deserialize<'de>>(mut msg: Message<'de>) -> Result<T, Error> {
-    T::deserialize(Deserializer::new(&mut msg))
+pub fn from_msg<'de, T: serde::Deserialize<'de>>(msg: Message<'de>) -> Result<T, Error> {
+    T::deserialize(Deserializer::new(&mut msg.into_iter()))
 }
 
 #[derive(Debug)]
 pub struct Deserializer<'a, 'de> {
-    msg: &'a mut Message<'de>,
+    msg: &'a mut MessageIter<'de>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -73,7 +73,7 @@ struct BlobAccess<'de> {
 }
 
 impl<'a, 'de> Deserializer<'a, 'de> {
-    pub fn new(msg: &'a mut Message<'de>) -> Self {
+    pub fn new(msg: &'a mut MessageIter<'de>) -> Self {
         Self { msg }
     }
 

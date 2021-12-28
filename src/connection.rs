@@ -193,8 +193,7 @@ impl ReceiveCtx {
         // at this point the reader always stores the message
         let msg = self.reader.peek().unwrap();
 
-        // .read() never returns empty message
-        let count = match msg.clone().next().unwrap() {
+        let count = match msg.head() {
             // server push message doesn't belong to the request-response mapping
             token::Token::Push(_) => {
                 self.last_is_push = true;

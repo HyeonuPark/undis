@@ -32,7 +32,12 @@ use Token::*;
 #[derive(Debug, Clone)]
 pub struct Message<'a> {
     buf: &'a [u8],
-    length: usize,
+    tokens: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct MessageIter<'a> {
+    msg: Message<'a>,
 }
 
 #[derive(Debug)]
@@ -262,23 +267,45 @@ impl<'a> Token<'a> {
     }
 }
 
-impl<'a> Iterator for Message<'a> {
-    type Item = Token<'a>;
+impl<'a> Message<'a> {
+    pub fn head(&self) -> Token<'a> {
+        // Message never be empty
+        self.clone().into_iter().next().unwrap()
+    }
+}
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.length == 0 {
-            debug_assert!(self.buf.is_empty());
-            None
-        } else {
-            self.length -= 1;
-            Some(next_token(&mut self.buf).unwrap())
-        }
+impl<'a> IntoIterator for Message<'a> {
+    type Item = Token<'a>;
+    type IntoIter = MessageIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        MessageIter { msg: self }
     }
 }
 
 impl<'a> AsRef<[u8]> for Message<'a> {
     fn as_ref(&self) -> &[u8] {
         self.buf
+    }
+}
+
+impl<'a> Iterator for MessageIter<'a> {
+    type Item = Token<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.msg.tokens == 0 {
+            debug_assert!(self.msg.buf.is_empty());
+            None
+        } else {
+            self.msg.tokens -= 1;
+            Some(next_token(&mut self.msg.buf).unwrap())
+        }
+    }
+}
+
+impl<'a> AsRef<[u8]> for MessageIter<'a> {
+    fn as_ref(&self) -> &[u8] {
+        self.msg.buf
     }
 }
 
@@ -320,9 +347,12 @@ impl Reader {
     }
 
     pub fn peek(&self) -> Option<Message<'_>> {
-        self.stack_remainings.is_empty().then(|| Message {
-            buf: &self.buf[..self.parsed_offset],
-            length: self.parsed_tokens,
+        self.stack_remainings.is_empty().then(|| {
+            debug_assert!(self.parsed_tokens > 0, "Message should never be empty");
+            Message {
+                buf: &self.buf[..self.parsed_offset],
+                tokens: self.parsed_tokens,
+            }
         })
     }
 
