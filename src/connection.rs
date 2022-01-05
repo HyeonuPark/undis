@@ -167,9 +167,8 @@ impl SendCtx {
         T: AsyncWrite + Unpin,
         Req: Serialize,
     {
-        self.buf.clear();
-        write_cmd(&mut self.buf, &request)?;
-        transport.write_all(&self.buf).await?;
+        let cmd = write_cmd(&mut self.buf, &request)?;
+        transport.write_all(cmd).await?;
 
         self.count += 1;
         Ok(self.count)
