@@ -1,11 +1,10 @@
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::connector::Connector;
 use crate::serde_helper::{extract_struct_fields, EnsureMapLike, EnsureScalar, EnsureSequence};
 
-use super::{Client, Error};
+use super::{Command, RawCommand};
 
-impl<T: Connector> Client<T> {
+impl<T: RawCommand> Command<T> {
     /// <https://redis.io/commands/hdel>
     ///
     /// The `key` should be a scalar type, and the `fields` should be a sequence-like type.
@@ -25,12 +24,12 @@ impl<T: Connector> Client<T> {
     /// let res = client.hdel(key, "field1").await?;
     /// assert_eq!(0, res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hdel<K, F>(&self, key: K, fields: F) -> Result<usize, Error>
+    pub async fn hdel<K, F>(&self, key: K, fields: F) -> Result<usize, T::Error>
     where
-        K: Serialize,
-        F: Serialize,
+        K: Serialize + Send,
+        F: Serialize + Send,
     {
-        self.raw_command(&("HDEL", EnsureScalar(key), EnsureSequence(fields)))
+        self.raw_command(("HDEL", EnsureScalar(key), EnsureSequence(fields)))
             .await
     }
 
@@ -52,12 +51,12 @@ impl<T: Connector> Client<T> {
     /// let res = client.hexists(key, "field2").await?;
     /// assert!(!res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hexists<K, F>(&self, key: K, field: F) -> Result<bool, Error>
+    pub async fn hexists<K, F>(&self, key: K, field: F) -> Result<bool, T::Error>
     where
-        K: Serialize,
-        F: Serialize,
+        K: Serialize + Send,
+        F: Serialize + Send,
     {
-        self.raw_command(&("HEXISTS", EnsureScalar(key), EnsureScalar(field)))
+        self.raw_command(("HEXISTS", EnsureScalar(key), EnsureScalar(field)))
             .await
     }
 
@@ -79,13 +78,13 @@ impl<T: Connector> Client<T> {
     /// let res: Option<String> = client.hget(key, "field2").await?;
     /// assert!(res.is_none());
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hget<K, F, R>(&self, key: K, field: F) -> Result<R, Error>
+    pub async fn hget<K, F, R>(&self, key: K, field: F) -> Result<R, T::Error>
     where
-        K: Serialize,
-        F: Serialize,
+        K: Serialize + Send,
+        F: Serialize + Send,
         R: DeserializeOwned,
     {
-        self.raw_command(&("HGET", EnsureScalar(key), EnsureScalar(field)))
+        self.raw_command(("HGET", EnsureScalar(key), EnsureScalar(field)))
             .await
     }
 
@@ -109,12 +108,12 @@ impl<T: Connector> Client<T> {
     /// assert_eq!("Hello", &res["field1"]);
     /// assert_eq!("World", &res["field2"]);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hgetall<K, R>(&self, key: K) -> Result<R, Error>
+    pub async fn hgetall<K, R>(&self, key: K) -> Result<R, T::Error>
     where
-        K: Serialize,
+        K: Serialize + Send,
         R: DeserializeOwned,
     {
-        self.raw_command(&("HGETALL", EnsureScalar(key))).await
+        self.raw_command(("HGETALL", EnsureScalar(key))).await
     }
 
     /// <https://redis.io/commands/hincrby>
@@ -137,12 +136,12 @@ impl<T: Connector> Client<T> {
     /// let res = client.hincrby(key, "field1", -10).await?;
     /// assert_eq!(-5, res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hincrby<K, F>(&self, key: K, field: F, increment: i64) -> Result<i64, Error>
+    pub async fn hincrby<K, F>(&self, key: K, field: F, increment: i64) -> Result<i64, T::Error>
     where
-        K: Serialize,
-        F: Serialize,
+        K: Serialize + Send,
+        F: Serialize + Send,
     {
-        self.raw_command(&("HINCRBY", EnsureScalar(key), EnsureScalar(field), increment))
+        self.raw_command(("HINCRBY", EnsureScalar(key), EnsureScalar(field), increment))
             .await
     }
 
@@ -168,12 +167,17 @@ impl<T: Connector> Client<T> {
     /// let res = client.hincrbyfloat(key, "field", 2.0e2).await?;
     /// assert_eq!(5200.0, res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hincrbyfloat<K, F>(&self, key: K, field: F, increment: f64) -> Result<f64, Error>
+    pub async fn hincrbyfloat<K, F>(
+        &self,
+        key: K,
+        field: F,
+        increment: f64,
+    ) -> Result<f64, T::Error>
     where
-        K: Serialize,
-        F: Serialize,
+        K: Serialize + Send,
+        F: Serialize + Send,
     {
-        self.raw_command(&(
+        self.raw_command((
             "HINCRBYFLOAT",
             EnsureScalar(key),
             EnsureScalar(field),
@@ -199,12 +203,12 @@ impl<T: Connector> Client<T> {
     /// let res: Vec<String> = client.hkeys(key).await?;
     /// assert_eq!(&["field1".to_owned(), "field2".to_owned()][..], &res[..]);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hkeys<K, R>(&self, key: K) -> Result<R, Error>
+    pub async fn hkeys<K, R>(&self, key: K) -> Result<R, T::Error>
     where
-        K: Serialize,
+        K: Serialize + Send,
         R: DeserializeOwned,
     {
-        self.raw_command(&("HKEYS", EnsureScalar(key))).await
+        self.raw_command(("HKEYS", EnsureScalar(key))).await
     }
 
     /// <https://redis.io/commands/hlen>
@@ -224,11 +228,11 @@ impl<T: Connector> Client<T> {
     /// let res = client.hlen(key).await?;
     /// assert_eq!(2, res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hlen<K>(&self, key: K) -> Result<usize, Error>
+    pub async fn hlen<K>(&self, key: K) -> Result<usize, T::Error>
     where
-        K: Serialize,
+        K: Serialize + Send,
     {
-        self.raw_command(&("HLEN", EnsureScalar(key))).await
+        self.raw_command(("HLEN", EnsureScalar(key))).await
     }
 
     /// <https://redis.io/commands/hmget>
@@ -257,23 +261,19 @@ impl<T: Connector> Client<T> {
     ///     assert_eq!(Query { field1: "Hello".into(), field2: "World".into(), nofield: None }, res);
     /// }
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hmget<K, R>(&self, key: K) -> Result<R, Error>
+    pub async fn hmget<K, R>(&self, key: K) -> Result<R, T::Error>
     where
-        K: Serialize,
+        K: Serialize + Send,
         R: DeserializeOwned,
     {
         let fields = extract_struct_fields::<R>().ok_or_else(|| {
-            super::ErrorKind::Connection(
-                crate::resp3::ser_cmd::Error::Custom(
-                    "hmget_struct can only return struct with named fields \
+            super::Error::from(crate::resp3::ser_cmd::Error::Custom(
+                "hmget_struct can only return struct with named fields \
                         with `#[derive(serde::Deserialize)]` attribute"
-                        .into(),
-                )
-                .into(),
-            )
+                    .into(),
+            ))
         })?;
-        self.raw_command(&("HMGET", EnsureScalar(key), fields))
-            .await
+        self.raw_command(("HMGET", EnsureScalar(key), fields)).await
     }
 
     /// <https://redis.io/commands/hrandfield>
@@ -295,12 +295,12 @@ impl<T: Connector> Client<T> {
     /// let res: String = client.hrandfield(key).await?;
     /// assert!(["head".to_owned(), "tails".to_owned(), "edge".to_owned()].contains(&res), "res: {}", res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hrandfield<K, R>(&self, key: K) -> Result<R, Error>
+    pub async fn hrandfield<K, R>(&self, key: K) -> Result<R, T::Error>
     where
-        K: Serialize,
+        K: Serialize + Send,
         R: DeserializeOwned,
     {
-        self.raw_command(&("HRANDFIELD", EnsureScalar(key))).await
+        self.raw_command(("HRANDFIELD", EnsureScalar(key))).await
     }
 
     /// <https://redis.io/commands/hrandfield>
@@ -322,12 +322,12 @@ impl<T: Connector> Client<T> {
     /// let res: Vec<String> = client.hrandfield_count(key, -3).await?;
     /// assert_eq!(vec!["head".to_owned(), "head".to_owned(), "head".to_owned()], res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hrandfield_count<K, R>(&self, key: K, count: isize) -> Result<R, Error>
+    pub async fn hrandfield_count<K, R>(&self, key: K, count: isize) -> Result<R, T::Error>
     where
-        K: Serialize,
+        K: Serialize + Send,
         R: DeserializeOwned,
     {
-        self.raw_command(&("HRANDFIELD", EnsureScalar(key), count))
+        self.raw_command(("HRANDFIELD", EnsureScalar(key), count))
             .await
     }
 
@@ -355,12 +355,12 @@ impl<T: Connector> Client<T> {
         cursor: u64,
         match_pattern: Option<&str>,
         count: Option<usize>,
-    ) -> Result<(u64, R), Error>
+    ) -> Result<(u64, R), T::Error>
     where
-        K: Serialize,
+        K: Serialize + Send,
         R: DeserializeOwned,
     {
-        self.raw_command(&(
+        self.raw_command((
             "HSCAN",
             EnsureScalar(key),
             cursor,
@@ -387,12 +387,12 @@ impl<T: Connector> Client<T> {
     /// let res: String = client.hget(key, "field1").await?;
     /// assert_eq!("foo", res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hset<K, E>(&self, key: K, entries: E) -> Result<usize, Error>
+    pub async fn hset<K, E>(&self, key: K, entries: E) -> Result<usize, T::Error>
     where
-        K: Serialize,
-        E: Serialize,
+        K: Serialize + Send,
+        E: Serialize + Send,
     {
-        self.raw_command(&("HSET", EnsureScalar(key), EnsureMapLike(entries)))
+        self.raw_command(("HSET", EnsureScalar(key), EnsureMapLike(entries)))
             .await
     }
 
@@ -414,13 +414,13 @@ impl<T: Connector> Client<T> {
     /// let res: String = client.hget(key, "field").await?;
     /// assert_eq!("Hello", res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hsetnx<K, F, V>(&self, key: K, field: F, value: V) -> Result<bool, Error>
+    pub async fn hsetnx<K, F, V>(&self, key: K, field: F, value: V) -> Result<bool, T::Error>
     where
-        K: Serialize,
-        F: Serialize,
-        V: Serialize,
+        K: Serialize + Send,
+        F: Serialize + Send,
+        V: Serialize + Send,
     {
-        self.raw_command(&(
+        self.raw_command((
             "HSETNX",
             EnsureScalar(key),
             EnsureScalar(field),
@@ -451,12 +451,12 @@ impl<T: Connector> Client<T> {
     /// let res = client.hstrlen(key, "f3").await?;
     /// assert_eq!(4, res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hstrlen<K, F>(&self, key: K, field: F) -> Result<usize, Error>
+    pub async fn hstrlen<K, F>(&self, key: K, field: F) -> Result<usize, T::Error>
     where
-        K: Serialize,
-        F: Serialize,
+        K: Serialize + Send,
+        F: Serialize + Send,
     {
-        self.raw_command(&("HSTRLEN", EnsureScalar(key), EnsureScalar(field)))
+        self.raw_command(("HSTRLEN", EnsureScalar(key), EnsureScalar(field)))
             .await
     }
 
@@ -478,11 +478,11 @@ impl<T: Connector> Client<T> {
     /// let res: Vec<String> = client.hvals(key).await?;
     /// assert_eq!(vec!["Hello".to_owned(), "World".to_owned()], res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hvals<K, R>(&self, key: K) -> Result<R, Error>
+    pub async fn hvals<K, R>(&self, key: K) -> Result<R, T::Error>
     where
-        K: Serialize,
+        K: Serialize + Send,
         R: DeserializeOwned,
     {
-        self.raw_command(&("HVALS", EnsureScalar(key))).await
+        self.raw_command(("HVALS", EnsureScalar(key))).await
     }
 }

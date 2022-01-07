@@ -47,6 +47,7 @@
 #![deny(missing_debug_implementations)]
 
 pub mod client;
+pub mod command;
 pub mod connection;
 pub mod connector;
 pub mod resp3;

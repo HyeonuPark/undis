@@ -17,7 +17,7 @@ This project is currently under heavy development. Use it at your own risk.
 - Add `#[deny(missing_docs)]`.
 - More command helper methods.
 - Pubsub.
-- Pipeline, and figure out how to share helper methods with the Client.
+- Pipeline.
 
 ## Future considerations
 

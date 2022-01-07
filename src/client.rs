@@ -8,22 +8,22 @@ use std::sync::atomic::{self, AtomicU64};
 use std::sync::{Arc, RwLock};
 
 use async_channel::{Receiver, Sender};
-use serde::{de::DeserializeOwned, Serialize};
+use async_trait::async_trait;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{OwnedSemaphorePermit as Permit, Semaphore};
 
+use crate::command::{self, Command};
 use crate::connection::{self, Connection as RawConnection};
 use crate::connector::{Connector, LookupError, TcpConnector};
 use crate::resp3::{de, value::Value};
-
-pub mod hash;
 
 #[cfg(test)]
 mod tests;
 
 #[derive(Debug)]
 pub struct Client<T: Connector = TcpConnector> {
-    shared: Arc<ClientShared<T>>,
+    shared: Arc<Command<ClientShared<T>>>,
 }
 
 #[derive(Debug)]
@@ -103,18 +103,47 @@ impl Client<TcpConnector> {
 
 impl<T: Connector> Client<T> {
     pub fn server_hello(&self) -> Arc<Value> {
-        self.shared.server_hello()
+        self.shared.0.server_hello()
     }
 
     pub async fn raw_command<Req: Serialize, Resp: DeserializeOwned>(
         &self,
         request: Req,
     ) -> Result<Resp, Error> {
-        self.shared.raw_command(request).await
+        self.shared.0.raw_command(request).await
     }
 
     pub async fn connection(&self) -> Result<Connection<T::Stream>, Error> {
-        self.shared.connection().await
+        self.shared.0.connection().await
+    }
+}
+
+impl<T: Connector> ops::Deref for Client<T> {
+    type Target = Command<ClientShared<T>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.shared
+    }
+}
+
+impl<T: Connector> Clone for Client<T> {
+    fn clone(&self) -> Self {
+        Self {
+            shared: self.shared.clone(),
+        }
+    }
+}
+
+#[async_trait]
+impl<T: Connector> command::RawCommand for Client<T> {
+    type Error = Error;
+
+    async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Self::Error>
+    where
+        Req: Serialize + Send,
+        Resp: DeserializeOwned,
+    {
+        self.raw_command(request).await
     }
 }
 
@@ -262,14 +291,29 @@ impl<T: Connector> ClientShared<T> {
     }
 }
 
-impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
-    pub async fn raw_command<Req: Serialize, Resp: DeserializeOwned>(
-        &mut self,
-        request: Req,
-    ) -> Result<Resp, Error> {
-        Ok(self.inner_mut().raw_command(request).await?)
-    }
+#[async_trait]
+impl<T: Connector> command::RawCommand for ClientShared<T> {
+    type Error = Error;
 
+    async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Self::Error>
+    where
+        Req: Serialize + Send,
+        Resp: DeserializeOwned,
+    {
+        self.raw_command(request).await
+    }
+}
+
+impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
+    pub async fn raw_command<'de, Req: Serialize, Resp: Deserialize<'de>>(
+        &'de mut self,
+        request: Req,
+    ) -> Result<Resp, connection::Error> {
+        self.inner_mut().raw_command(request).await
+    }
+}
+
+impl<T> Connection<T> {
     pub fn inner(&self) -> &RawConnection<T> {
         &self.entry.as_ref().unwrap().conn
     }
@@ -291,10 +335,24 @@ impl<T> ops::Drop for Connection<T> {
     }
 }
 
+#[async_trait]
+impl<T: AsyncRead + AsyncWrite + Send + Unpin> command::RawCommandMut for Connection<T> {
+    async fn raw_command<'de, Req, Resp>(
+        &'de mut self,
+        request: Req,
+    ) -> Result<Resp, connection::Error>
+    where
+        Req: Serialize + Send,
+        Resp: Deserialize<'de>,
+    {
+        self.raw_command(request).await
+    }
+}
+
 impl<T: Connector> From<ClientShared<T>> for Client<T> {
     fn from(shared: ClientShared<T>) -> Self {
         Client {
-            shared: Arc::new(shared),
+            shared: Arc::new(Command(shared)),
         }
     }
 }

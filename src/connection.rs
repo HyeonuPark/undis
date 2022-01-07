@@ -1,8 +1,10 @@
 use std::marker::Unpin;
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
 
+use crate::command;
 use crate::resp3::{de, from_msg, ser_cmd, token, write_cmd, Reader, Value};
 
 #[derive(Debug)]
@@ -132,6 +134,17 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
                 receiver: self.receiver,
             },
         )
+    }
+}
+
+#[async_trait]
+impl<T: AsyncRead + AsyncWrite + Send + Unpin> command::RawCommandMut for Connection<T> {
+    async fn raw_command<'de, Req, Resp>(&'de mut self, request: Req) -> Result<Resp, Error>
+    where
+        Req: Serialize + Send,
+        Resp: Deserialize<'de>,
+    {
+        self.raw_command(request).await
     }
 }
 
