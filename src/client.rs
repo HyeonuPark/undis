@@ -2,14 +2,15 @@
 //!
 //! For more information, see the [`Client`](self::Client) type.
 
+use std::num::NonZeroUsize;
 use std::ops;
 use std::sync::atomic::{self, AtomicU64};
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
 
-use async_trait::async_trait;
-use deadpool::managed::{self, Object, Pool, PoolError, TimeoutType};
+use async_channel::{Receiver, Sender};
 use serde::{de::DeserializeOwned, Serialize};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::sync::{OwnedSemaphorePermit as Permit, Semaphore};
 
 use crate::connection::{self, Connection as RawConnection};
 use crate::connector::{Connector, LookupError, TcpConnector};
@@ -22,21 +23,43 @@ mod tests;
 
 #[derive(Debug)]
 pub struct Client<T: Connector = TcpConnector> {
-    pool: Pool<Manager<T>>,
+    shared: Arc<ClientShared<T>>,
 }
 
 #[derive(Debug)]
-pub struct Connection<T: Connector>(Object<Manager<T>>);
+pub struct ClientShared<T: Connector> {
+    connector: T,
+    init: Init,
+    ping_counter: AtomicU64,
+    server_hello: RwLock<Arc<Value>>,
+    sender: Sender<Entry<RawConnection<T::Stream>>>,
+    receiver: Receiver<Entry<RawConnection<T::Stream>>>,
+    semaphore: Arc<Semaphore>,
+}
+
+#[derive(Debug)]
+struct Init {
+    auth: Option<(String, String)>,
+    setname: Option<String>,
+    select: Option<u32>,
+}
+
+#[derive(Debug)]
+pub struct Connection<T> {
+    entry: Option<Entry<RawConnection<T>>>,
+    sender: Sender<Entry<RawConnection<T>>>,
+}
+
+#[derive(Debug)]
+struct Entry<T> {
+    conn: T,
+    _permit: Permit,
+}
 
 #[derive(Debug)]
 pub struct Builder {
     connection_limit: usize,
-    acquire_timeout: Option<Duration>,
-    connect_timeout: Option<Duration>,
-    ping_timeout: Option<Duration>,
-    auth: Option<(String, String)>,
-    setname: Option<String>,
-    select: Option<u32>,
+    init: Init,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -45,26 +68,15 @@ pub struct Error(#[from] pub Box<ErrorKind>);
 
 #[derive(Debug, thiserror::Error)]
 pub enum ErrorKind {
+    /// Connection error.
     #[error("connection error")]
     Connection(#[from] connection::Error),
-    #[error("connection acquire timeout")]
-    AcquireTimeout,
-    #[error("connection timeout")]
-    ConnectionTimeout,
+    /// Ping pong failed.
     #[error("ping-pong failed")]
     PingPongFailed,
+    /// DNS lookup failed.
     #[error("DNS lookup failed")]
     Lookup(#[from] LookupError),
-}
-
-#[derive(Debug)]
-struct Manager<T> {
-    connector: T,
-    auth: Option<(String, String)>,
-    setname: Option<String>,
-    select: Option<u32>,
-    ping_counter: AtomicU64,
-    last_hello: RwLock<Option<Arc<Value>>>,
 }
 
 impl Client<TcpConnector> {
@@ -76,102 +88,48 @@ impl Client<TcpConnector> {
     ///
     /// It panics if `connection_limit` is zero.
     pub async fn new(connection_limit: usize, addr: &str) -> Result<Self, Error> {
-        Self::builder(connection_limit).bind(addr).await
+        Self::builder(NonZeroUsize::new(connection_limit).unwrap())
+            .bind(addr)
+            .await
     }
 
     /// Create a client builder.
     ///
     /// The builder from this method is not limited to the `TcpConnector`.
-    ///
-    /// # Panic
-    ///
-    /// It panics if `connection_limit` is zero.
-    pub fn builder(connection_limit: usize) -> Builder {
-        assert_ne!(
-            0, connection_limit,
-            "Client needs to have at least one connection"
-        );
-
-        Builder {
-            connection_limit,
-            acquire_timeout: None,
-            connect_timeout: None,
-            ping_timeout: None,
-            auth: None,
-            setname: None,
-            select: None,
-        }
+    pub fn builder(connection_limit: NonZeroUsize) -> Builder {
+        Builder::new(connection_limit)
     }
 }
 
 impl<T: Connector> Client<T> {
     pub fn server_hello(&self) -> Arc<Value> {
-        self.pool
-            .manager()
-            .last_hello
-            .read()
-            .unwrap() // propagate panic if occurred
-            .clone()
-            .unwrap() // hello response always exist after client start
+        self.shared.server_hello()
     }
 
     pub async fn raw_command<Req: Serialize, Resp: DeserializeOwned>(
         &self,
         request: Req,
     ) -> Result<Resp, Error> {
-        let mut conn = self.connection().await?;
-        let res = conn.raw_command(request).await?;
-        Ok(res)
+        self.shared.raw_command(request).await
     }
 
-    pub async fn connection(&self) -> Result<Connection<T>, Error> {
-        match self.pool.get().await {
-            Ok(conn) => Ok(Connection(conn)),
-            Err(PoolError::Backend(err)) => Err(err),
-            Err(PoolError::Timeout(TimeoutType::Wait)) => Err(ErrorKind::AcquireTimeout.into()),
-            Err(PoolError::Timeout(TimeoutType::Create | TimeoutType::Recycle)) => {
-                Err(ErrorKind::ConnectionTimeout.into())
-            }
-            Err(
-                PoolError::Closed
-                | PoolError::NoRuntimeSpecified
-                | PoolError::PostCreateHook(_)
-                | PoolError::PreRecycleHook(_)
-                | PoolError::PostRecycleHook(_),
-            ) => unreachable!(),
-        }
-    }
-}
-
-impl<T: Connector> Clone for Client<T> {
-    fn clone(&self) -> Self {
-        Self {
-            pool: self.pool.clone(),
-        }
-    }
-}
-
-impl<T: Connector> Connection<T> {
-    pub fn detach(self) -> RawConnection<T::Stream> {
-        Object::take(self.0)
-    }
-}
-
-impl<T: Connector> ops::Deref for Connection<T> {
-    type Target = RawConnection<T::Stream>;
-
-    fn deref(&self) -> &Self::Target {
-        &*self.0
-    }
-}
-
-impl<T: Connector> ops::DerefMut for Connection<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut *self.0
+    pub async fn connection(&self) -> Result<Connection<T::Stream>, Error> {
+        self.shared.connection().await
     }
 }
 
 impl Builder {
+    pub fn new(connection_limit: NonZeroUsize) -> Builder {
+        Builder {
+            connection_limit: connection_limit.get(),
+            init: Init {
+                auth: None,
+                setname: None,
+                select: None,
+            },
+        }
+    }
+
     pub async fn bind(self, addr: &str) -> Result<Client<TcpConnector>, Error> {
         self.build(
             TcpConnector::lookup(addr)
@@ -182,96 +140,162 @@ impl Builder {
     }
 
     pub async fn build<T: Connector>(self, connector: T) -> Result<Client<T>, Error> {
-        let manager = Manager {
+        Ok(self.build_shared(connector).await?.into())
+    }
+
+    pub async fn build_shared<T: Connector>(self, connector: T) -> Result<ClientShared<T>, Error> {
+        let (conn, hello) = make_connection(&connector, &self.init).await?;
+        let semaphore = Arc::new(Semaphore::new(self.connection_limit));
+        let permit = semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("semaphore should have at least 1 permits left");
+        let (sender, receiver) = async_channel::bounded(self.connection_limit);
+
+        sender
+            .try_send(Entry {
+                conn,
+                _permit: permit,
+            })
+            .expect("channel should have at least 1 caps");
+
+        Ok(ClientShared {
             connector,
-            auth: self.auth,
-            setname: self.setname,
-            select: self.select,
+            init: self.init,
             ping_counter: AtomicU64::new(0),
-            last_hello: RwLock::default(),
-        };
-        let pool = Pool::builder(manager)
-            .runtime(deadpool::Runtime::Tokio1)
-            .max_size(self.connection_limit)
-            .wait_timeout(self.acquire_timeout)
-            .create_timeout(self.connect_timeout)
-            .recycle_timeout(self.ping_timeout)
-            .build();
-        let pool = match pool {
-            Ok(pool) => pool,
-            Err(managed::BuildError::Backend(err)) => return Err(err),
-            Err(managed::BuildError::NoRuntimeSpecified(_)) => unreachable!(),
-        };
-
-        let client = Client { pool };
-        // to validate connection info and fetch server hello
-        client.connection().await?;
-
-        Ok(client)
-    }
-
-    pub fn acquire_timeout(mut self, timeout: Duration) -> Self {
-        self.acquire_timeout = Some(timeout);
-        self
-    }
-
-    pub fn connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(timeout);
-        self
-    }
-
-    pub fn ping_timeout(mut self, timeout: Duration) -> Self {
-        self.ping_timeout = Some(timeout);
-        self
+            server_hello: RwLock::new(hello),
+            sender,
+            receiver,
+            semaphore,
+        })
     }
 
     pub fn auth(mut self, username: &str, password: &str) -> Self {
-        self.auth = Some((username.into(), password.into()));
+        self.init.auth = Some((username.into(), password.into()));
         self
     }
 
     pub fn setname(mut self, clientname: &str) -> Self {
-        self.setname = Some(clientname.into());
+        self.init.setname = Some(clientname.into());
         self
     }
 
     pub fn select(mut self, db: u32) -> Self {
-        self.select = Some(db);
+        self.init.select = Some(db);
         self
     }
 }
 
-#[async_trait]
-impl<T: Connector> managed::Manager for Manager<T> {
-    type Type = RawConnection<T::Stream>;
-    type Error = Error;
+async fn make_connection<T: Connector>(
+    connector: &T,
+    init: &Init,
+) -> Result<(RawConnection<T::Stream>, Arc<Value>), Error> {
+    let conn = connector.connect().await?;
+    let (conn, hello) = RawConnection::with_args(
+        conn,
+        init.auth
+            .as_ref()
+            .map(|(username, password)| (&username[..], &password[..])),
+        init.setname.as_deref(),
+        init.select,
+    )
+    .await?;
+    let hello = Arc::new(hello);
 
-    async fn create(&self) -> Result<Self::Type, Self::Error> {
-        let conn = self.connector.connect().await?;
-        let (conn, hello) = RawConnection::with_args(
-            conn,
-            self.auth
-                .as_ref()
-                .map(|(username, password)| (&username[..], &password[..])),
-            self.setname.as_deref(),
-            self.select,
-        )
-        .await?;
-        let hello = Arc::new(hello);
-        *self.last_hello.write().unwrap() = Some(hello);
-        Ok(conn)
+    Ok((conn, hello))
+}
+
+impl<T: Connector> ClientShared<T> {
+    pub fn server_hello(&self) -> Arc<Value> {
+        Arc::clone(&self.server_hello.read().unwrap())
     }
 
-    async fn recycle(&self, conn: &mut Self::Type) -> Result<(), managed::RecycleError<Error>> {
-        let count = self.ping_counter.fetch_add(1, atomic::Ordering::Relaxed);
-        let pong: u64 = conn
-            .raw_command(&("PING", count))
-            .await
-            .map_err(Error::from)?;
-        if pong != count {
-            return Err(Error::from(ErrorKind::PingPongFailed).into());
+    pub async fn raw_command<Req: Serialize, Resp: DeserializeOwned>(
+        &self,
+        request: Req,
+    ) -> Result<Resp, Error> {
+        let mut conn = self.connection().await?;
+        Ok(conn.raw_command(request).await?)
+    }
+
+    pub async fn connection(&self) -> Result<Connection<T::Stream>, Error> {
+        async fn wrap<T: Connector>(
+            client: &ClientShared<T>,
+            mut entry: Entry<RawConnection<T::Stream>>,
+        ) -> Result<Connection<T::Stream>, Error> {
+            let count = client.ping_counter.fetch_add(1, atomic::Ordering::Relaxed);
+            let pong: u64 = entry.conn.raw_command(&("PING", count)).await?;
+
+            if pong != count {
+                return Err(ErrorKind::PingPongFailed.into());
+            }
+
+            Ok(Connection {
+                entry: Some(entry),
+                sender: client.sender.clone(),
+            })
         }
-        Ok(())
+        async fn connect<T: Connector>(
+            client: &ClientShared<T>,
+            permit: Permit,
+        ) -> Result<Connection<T::Stream>, Error> {
+            let (conn, hello) = make_connection(&client.connector, &client.init).await?;
+            *client.server_hello.write().unwrap() = hello;
+
+            Ok(Connection {
+                sender: client.sender.clone(),
+                entry: Some(Entry {
+                    conn,
+                    _permit: permit,
+                }),
+            })
+        }
+
+        let sem = self.semaphore.clone();
+
+        tokio::select! {
+            biased;
+            entry = self.receiver.recv() => wrap(self, entry.unwrap()).await,
+            permit = sem.acquire_owned() => connect(self, permit.unwrap()).await,
+        }
+    }
+}
+
+impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
+    pub async fn raw_command<Req: Serialize, Resp: DeserializeOwned>(
+        &mut self,
+        request: Req,
+    ) -> Result<Resp, Error> {
+        Ok(self.inner_mut().raw_command(request).await?)
+    }
+
+    pub fn inner(&self) -> &RawConnection<T> {
+        &self.entry.as_ref().unwrap().conn
+    }
+
+    pub fn inner_mut(&mut self) -> &mut RawConnection<T> {
+        &mut self.entry.as_mut().unwrap().conn
+    }
+
+    pub fn into_inner(mut self) -> RawConnection<T> {
+        self.entry.take().unwrap().conn
+    }
+}
+
+impl<T> ops::Drop for Connection<T> {
+    fn drop(&mut self) {
+        if let Some(entry) = self.entry.take() {
+            self.sender.try_send(entry).unwrap()
+        }
+    }
+}
+
+impl<T: Connector> From<ClientShared<T>> for Client<T> {
+    fn from(shared: ClientShared<T>) -> Self {
+        Client {
+            shared: Arc::new(shared),
+        }
     }
 }
 

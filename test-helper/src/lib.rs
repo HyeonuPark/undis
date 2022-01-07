@@ -17,7 +17,7 @@ pub async fn client() -> Result<Client, BoxError> {
             std::process::exit(0);
         }
     };
-    let client = Client::builder(1).bind(&url).await?;
+    let client = Client::new(1, &url).await?;
     println!("New redis connection: {:?}", client.server_hello());
     Ok(client)
 }

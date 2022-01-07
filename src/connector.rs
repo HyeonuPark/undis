@@ -3,12 +3,13 @@
 //! For more information, see the [`Connector`](self::Connector) trait.
 
 use std::fmt::Debug;
+use std::future::Future;
 use std::marker::Unpin;
 use std::net::SocketAddr;
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 
-pub use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
 #[cfg(unix)]
 use tokio::net::UnixStream;
@@ -30,13 +31,12 @@ use crate::connection::Error;
 /// This trait uses [`async_trait`](self::async_trait) to abstract over async operation.
 /// At this point the rustdoc generates not-so-pretty document for it.
 /// If you haven't used it before, it would be better to check its own documentation first.
-#[async_trait]
 pub trait Connector: Send + Sync {
     /// Connection stream this connector produces.
     type Stream: AsyncRead + AsyncWrite + Debug + Unpin + Send;
 
     /// Connect to the Redis server and return the stream to it.
-    async fn connect(&self) -> Result<Self::Stream, Error>;
+    fn connect(&self) -> Pin<Box<dyn Future<Output = Result<Self::Stream, Error>>>>;
 }
 
 /// TCP socket connector.
@@ -80,12 +80,12 @@ impl TcpConnector {
     }
 }
 
-#[async_trait]
 impl Connector for TcpConnector {
     type Stream = TcpStream;
 
-    async fn connect(&self) -> Result<Self::Stream, Error> {
-        Ok(TcpStream::connect(self.addr).await?)
+    fn connect(&self) -> Pin<Box<dyn Future<Output = Result<Self::Stream, Error>>>> {
+        let addr = self.addr;
+        Box::pin(async move { Ok(TcpStream::connect(addr).await?) })
     }
 }
 
@@ -100,11 +100,11 @@ impl UnixConnector {
 }
 
 #[cfg(unix)]
-#[async_trait]
 impl Connector for UnixConnector {
     type Stream = UnixStream;
 
-    async fn connect(&self) -> Result<Self::Stream, Error> {
-        Ok(UnixStream::connect(&self.path).await?)
+    fn connect(&self) -> Pin<Box<dyn Future<Output = Result<Self::Stream, Error>>>> {
+        let path = self.path.clone();
+        Box::pin(async move { Ok(UnixStream::connect(&path).await?) })
     }
 }

@@ -3,11 +3,7 @@ use super::Error;
 macro_rules! test_client {
     () => {
         match std::env::var("REDIS_URL") {
-            Ok(url) => crate::Client::builder(1)
-                .acquire_timeout(std::time::Duration::from_secs(3))
-                .bind(&url)
-                .await
-                .unwrap(),
+            Ok(url) => crate::Client::new(1, &url).await.unwrap(),
             Err(_) => return Ok(()),
         }
     };
@@ -20,7 +16,7 @@ async fn command_canceled() -> Result<(), Error> {
     {
         // to emulate canceled command
         let mut conn = client.connection().await?;
-        conn.send(("PING", "a")).await?;
+        conn.inner_mut().send(("PING", "a")).await?;
     }
     {
         let b: String = client.raw_command(("PING", "b")).await?;
