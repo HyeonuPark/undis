@@ -6,40 +6,127 @@ use once_cell::sync::Lazy;
 
 use super::parse_str;
 
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+/// RESP3 token
+///
+/// https://github.com/antirez/RESP3/blob/74adea588783e463c7e84793b325b088fe6edd1c/spec.md
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Token<'a> {
+    /// `*42\r\n` or `*?\r\n`
+    ///
+    /// Array token with optional length.
+    /// If the length is not specified it's a streaming array.
     Array(Option<usize>),
+    /// `$5\r\nhello\r\n` or `$?\r\n`
+    ///
+    /// Blob string token which can be a streaming one.
+    /// If the content is missing it's a header of a streaming blob.
     Blob(Option<&'a [u8]>),
+    /// `;5\r\n`
+    ///
+    /// Element of a streaming blob string.
     BlobStream(&'a [u8]),
+    /// `+hello\r\n`
+    ///
+    /// Simple string token.
     Simple(&'a [u8]),
+    /// `-error\r\n`
+    ///
+    /// Simple error token.
     SimpleError(&'a [u8]),
+    /// `:42\r\n`
+    ///
+    /// Number token.
+    /// Its value should be representable as a i64.
     Number(i64),
+    /// `_\r\n`
+    ///
+    /// Null token.
     Null,
-    Double(f64),
+    /// `,3.1415\r\n`
+    ///
+    /// Double token.
+    /// Its value should be representable as a f64.
+    /// It can't hold the `NaN` value.
+    Double(super::double::Double),
+    /// `#t\r\n` or `#f\r\n`
+    ///
+    /// Boolean token.
     Boolean(bool),
+    /// `!5\r\nerror\r\n`
+    ///
+    /// Blob error token.
     BlobError(&'a [u8]),
+    /// `=9\r\n**hello**\r\n`
+    ///
+    /// Verbatim string token.
+    /// It may contains markdown document.
     Verbatim(&'a [u8]),
+    /// `%2\r\n` or `%?\r\n`
+    ///
+    /// Map token with optional length.
+    /// The length is amount of entries if specified,
+    /// so the number of values followed by this token woule be double of it.
+    /// If the length is missing it's a streaming map.
     Map(Option<usize>),
+    /// `~2\r\n` or `~?\r\n`
+    ///
+    /// Set token with optional length.
+    /// Order of its entries should not be considered stable.
     Set(Option<usize>),
+    /// `|2\r\n`
+    ///
+    /// Attribute token is like a non-streaming Map,
+    /// but its value should be ignored during parsing normal values.
     Attribute(usize),
+    /// `>2\r\n`
+    ///
+    /// Push token is like a non-streaming Map,
+    /// but it is sent from the server without any request.
+    /// ex) pubsub event
     Push(usize),
+    /// `(10000000000000000000\r\n`
+    ///
+    /// Big number token contains integer which can't be represented as a `i64`.
     BigNumber(&'a [u8]),
+    /// `.\r\n`
+    ///
+    /// Stream end token signals the streaming aggregate type is ended.
     StreamEnd,
 }
 
 use Token::*;
 
-#[derive(Debug, Clone)]
+/// Top level value which flows over the connection.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Message<'a> {
     buf: &'a [u8],
     tokens: usize,
 }
 
+/// Iterate tokens within a message.
 #[derive(Debug, Clone)]
 pub struct MessageIter<'a> {
     msg: Message<'a>,
 }
 
+/// Reader accepts bytes from the transport and returns complete message when available.
+///
+/// ```
+/// # use undis::resp3::token::{Reader, Message, Error};
+/// # use bytes::BufMut;
+/// let mut reader = Reader::new();
+/// reader.buf().put_slice(b"$12\r\nHello w");
+/// assert_eq!(None, reader.read()?);
+/// reader.buf().put_slice(b"orld!\r\n*2\r");
+/// assert_eq!(b"$12\r\nHello world!\r\n", reader.read()?.unwrap().as_ref());
+/// reader.buf().put_slice(b"\n:1\r\n:2\r\n-wh");
+/// assert_eq!(b"$12\r\nHello world!\r\n", reader.read()?.unwrap().as_ref());
+/// reader.consume();
+/// assert_eq!(b"*2\r\n:1\r\n:2\r\n", reader.read()?.unwrap().as_ref());
+/// reader.consume();
+/// assert_eq!(None, reader.read()?);
+/// # Ok::<_, Error>(())
+/// ```
 #[derive(Debug)]
 pub struct Reader {
     buf: Vec<u8>,
@@ -48,19 +135,26 @@ pub struct Reader {
     stack_remainings: Vec<Option<NonZeroUsize>>,
 }
 
+/// Errors that can happen during the [`Reader`](self::Reader) operates.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// Invalid prefix byte.
     #[error("invalid prefix byte")]
     InvalidPrefix,
+    /// Expected `\r\n` bytes, but found something else.
     #[error("expected \\r\\n bytes, but found something else")]
     ExpectedCrlf,
+    /// Failed to parse integer.
     #[error("failed to parse integer")]
     ParseIntFailed,
+    /// Failed to parse decimal number.
     #[error("failed to parse decimal number")]
     ParseFloatFailed,
+    /// Failed to parse boolean.
     #[error("failed to parse boolean")]
     ParseBoolFailed,
-    #[error("found stream END token outside from the streaming context")]
+    /// Found stream end token outside from the streaming context.
+    #[error("found stream end token outside from the streaming context")]
     UnexpectedStreamEnd,
 }
 
@@ -93,6 +187,7 @@ const ONE: NonZeroUsize = match NonZeroUsize::new(1) {
 };
 
 impl<'a> Token<'a> {
+    /// Write a token to the buffer.
     pub fn put<T: BufMut>(&self, buf: &mut T) {
         fn aggr_type<T: BufMut>(buf: &mut T, tag: u8, len: &Option<usize>) {
             buf.put_u8(tag);
@@ -159,7 +254,7 @@ impl<'a> Token<'a> {
             Double(num) => {
                 let mut fbuf = ryu::Buffer::new();
                 buf.put_u8(DOUBLE);
-                buf.put_slice(fbuf.format(*num).as_bytes());
+                buf.put_slice(fbuf.format(num.get()).as_bytes());
                 buf.put_slice(CRLF);
             }
             Boolean(b) => {
@@ -268,6 +363,7 @@ impl<'a> Token<'a> {
 }
 
 impl<'a> Message<'a> {
+    /// Peek the first token within this message.
     pub fn head(&self) -> Token<'a> {
         // Message never be empty
         self.clone().into_iter().next().unwrap()
@@ -310,6 +406,7 @@ impl<'a> AsRef<[u8]> for MessageIter<'a> {
 }
 
 impl Reader {
+    /// Constructs a new `Reader`.
     pub fn new() -> Self {
         Reader {
             buf: vec![],
@@ -319,12 +416,13 @@ impl Reader {
         }
     }
 
+    /// Get the buffer to feed incoming bytes.
     pub fn buf(&mut self) -> &mut impl BufMut {
         &mut self.buf
     }
 
     /// Returns message view stored within the internal buffer on success.
-    /// Returns `Err(None)` if more bytes needed to parse.
+    /// Returns `Ok(None)` if more bytes needed to parse.
     /// To get next message after this call, you need to call `.consume()`
     /// otherwise the same message would be returned again.
     pub fn read(&mut self) -> Result<Option<Message<'_>>, Error> {
@@ -346,6 +444,7 @@ impl Reader {
         Ok(msg)
     }
 
+    /// Peek a message stored within the `Reader` without modifying internal state.
     pub fn peek(&self) -> Option<Message<'_>> {
         self.stack_remainings.is_empty().then(|| {
             debug_assert!(self.parsed_tokens > 0, "Message should never be empty");
@@ -356,6 +455,7 @@ impl Reader {
         })
     }
 
+    /// Consume currently parsed message.
     pub fn consume(&mut self) {
         if self.stack_remainings.is_empty() {
             self.buf.drain(..self.parsed_offset);
@@ -365,6 +465,7 @@ impl Reader {
         }
     }
 
+    /// Reset the internal state of the `Reader`.
     pub fn reset(&mut self) {
         self.stack_remainings.clear();
         self.stack_remainings.push(Some(ONE));

@@ -118,7 +118,7 @@ impl<'a, 'de> Deserializer<'a, 'de> {
                 Some(Token::Number(num)) => Ok(Kind::Num(num)),
                 Some(Token::BigNumber(digits)) => Ok(Kind::BigNum(digits)),
                 Some(Token::Null) => Ok(Kind::Null),
-                Some(Token::Double(num)) => Ok(Kind::Double(num)),
+                Some(Token::Double(num)) => Ok(Kind::Double(num.get())),
                 Some(Token::Boolean(b)) => Ok(Kind::Bool(b)),
                 Some(Token::Array(len)) => Ok(Kind::Array(len)),
                 Some(Token::Set(len)) => Ok(Kind::Set(len)),

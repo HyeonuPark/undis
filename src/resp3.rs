@@ -1,4 +1,5 @@
 pub mod de;
+pub mod double;
 pub mod ser_cmd;
 pub mod token;
 pub mod value;
