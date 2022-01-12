@@ -14,7 +14,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{OwnedSemaphorePermit as Permit, Semaphore};
 
 use crate::command::{self, Command};
-use crate::connection::{self, Connection as RawConnection};
+use crate::connection::{Connection as RawConnection, Error};
 use crate::connector::{Connector, LookupError, TcpConnector};
 use crate::resp3::{de, value::Value};
 
@@ -62,21 +62,15 @@ pub struct Builder {
     init: Init,
 }
 
+/// Errors that occur when binding the client to some address.
 #[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-pub struct Error(#[from] pub Box<ErrorKind>);
-
-#[derive(Debug, thiserror::Error)]
-pub enum ErrorKind {
-    /// Connection error.
-    #[error("connection error")]
-    Connection(#[from] connection::Error),
-    /// Ping pong failed.
-    #[error("ping-pong failed")]
-    PingPongFailed,
+pub enum BindError {
     /// DNS lookup failed.
     #[error("DNS lookup failed")]
     Lookup(#[from] LookupError),
+    /// Connection error.
+    #[error("connection error")]
+    Connection(#[from] Error),
 }
 
 impl Client<TcpConnector> {
@@ -87,7 +81,7 @@ impl Client<TcpConnector> {
     /// # Panic
     ///
     /// It panics if `connection_limit` is zero.
-    pub async fn new(connection_limit: usize, addr: &str) -> Result<Self, Error> {
+    pub async fn new(connection_limit: usize, addr: &str) -> Result<Self, BindError> {
         Self::builder(NonZeroUsize::new(connection_limit).unwrap())
             .bind(addr)
             .await
@@ -136,14 +130,20 @@ impl<T: Connector> Clone for Client<T> {
 
 #[async_trait]
 impl<T: Connector> command::RawCommand for Client<T> {
-    type Error = Error;
-
-    async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Self::Error>
+    async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Error>
     where
         Req: Serialize + Send,
         Resp: DeserializeOwned,
     {
         self.raw_command(request).await
+    }
+}
+
+impl<T: Connector> From<ClientShared<T>> for Client<T> {
+    fn from(shared: ClientShared<T>) -> Self {
+        Client {
+            shared: Arc::new(Command(shared)),
+        }
     }
 }
 
@@ -159,13 +159,8 @@ impl Builder {
         }
     }
 
-    pub async fn bind(self, addr: &str) -> Result<Client<TcpConnector>, Error> {
-        self.build(
-            TcpConnector::lookup(addr)
-                .await
-                .map_err(ErrorKind::Lookup)?,
-        )
-        .await
+    pub async fn bind(self, addr: &str) -> Result<Client<TcpConnector>, BindError> {
+        Ok(self.build(TcpConnector::lookup(addr).await?).await?)
     }
 
     pub async fn build<T: Connector>(self, connector: T) -> Result<Client<T>, Error> {
@@ -257,7 +252,11 @@ impl<T: Connector> ClientShared<T> {
             let pong: u64 = entry.conn.raw_command(&("PING", count)).await?;
 
             if pong != count {
-                return Err(ErrorKind::PingPongFailed.into());
+                return Err(de::Error::Serde(format!(
+                    "Invalid PING response - exp: {}, got: {}",
+                    count, pong
+                ))
+                .into());
             }
 
             Ok(Connection {
@@ -293,9 +292,7 @@ impl<T: Connector> ClientShared<T> {
 
 #[async_trait]
 impl<T: Connector> command::RawCommand for ClientShared<T> {
-    type Error = Error;
-
-    async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Self::Error>
+    async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Error>
     where
         Req: Serialize + Send,
         Resp: DeserializeOwned,
@@ -308,7 +305,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
     pub async fn raw_command<'de, Req: Serialize, Resp: Deserialize<'de>>(
         &'de mut self,
         request: Req,
-    ) -> Result<Resp, connection::Error> {
+    ) -> Result<Resp, Error> {
         self.inner_mut().raw_command(request).await
     }
 }
@@ -337,40 +334,11 @@ impl<T> ops::Drop for Connection<T> {
 
 #[async_trait]
 impl<T: AsyncRead + AsyncWrite + Send + Unpin> command::RawCommandMut for Connection<T> {
-    async fn raw_command<'de, Req, Resp>(
-        &'de mut self,
-        request: Req,
-    ) -> Result<Resp, connection::Error>
+    async fn raw_command<'de, Req, Resp>(&'de mut self, request: Req) -> Result<Resp, Error>
     where
         Req: Serialize + Send,
         Resp: Deserialize<'de>,
     {
         self.raw_command(request).await
-    }
-}
-
-impl<T: Connector> From<ClientShared<T>> for Client<T> {
-    fn from(shared: ClientShared<T>) -> Self {
-        Client {
-            shared: Arc::new(Command(shared)),
-        }
-    }
-}
-
-impl From<de::Error> for Error {
-    fn from(err: de::Error) -> Self {
-        connection::Error::from(err).into()
-    }
-}
-
-impl From<connection::Error> for Error {
-    fn from(err: connection::Error) -> Self {
-        ErrorKind::from(err).into()
-    }
-}
-
-impl From<ErrorKind> for Error {
-    fn from(err: ErrorKind) -> Self {
-        Box::new(err).into()
     }
 }

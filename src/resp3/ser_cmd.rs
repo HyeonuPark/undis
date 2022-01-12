@@ -36,9 +36,9 @@ pub fn write_cmd<'a, T: serde::Serialize>(
 /// Errors that may occur when serializing commands.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// Custom error message.
-    #[error("custom: {0}")]
-    Custom(String),
+    /// Serde related error.
+    #[error("serde: {0}")]
+    Serde(String),
     /// Only sequence-like types are supported as a command root.
     #[error("only sequence-like types are supported as a command root")]
     NotSequenceRoot,
@@ -70,7 +70,7 @@ impl ser::Error for Error {
     where
         T: fmt::Display,
     {
-        Error::Custom(msg.to_string())
+        Error::Serde(msg.to_string())
     }
 }
 

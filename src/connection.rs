@@ -39,16 +39,28 @@ struct ReceiveCtx {
     last_is_push: bool,
 }
 
+/// Common error type across operations.
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+#[error(transparent)]
+pub struct Error(#[from] pub Box<ErrorKind>);
+
+/// Internal representation of the [`Error`](self::Error) type.
+#[derive(Debug, thiserror::Error)]
+pub enum ErrorKind {
+    /// IO error.
     #[error("io error")]
     Io(#[from] std::io::Error),
+    /// Tokenize error.
     #[error("tokenize error")]
     Tokenize(#[from] token::Error),
+    /// Serialize error.
     #[error("serialize error")]
     Serialize(#[from] ser_cmd::Error),
+    /// Deserialize error.
     #[error("deserialize error")]
     Deserialize(#[from] de::Error),
+    /// Invalid message order.
+    /// The client receives response from the server for the request haven't sent yet.
     #[error("invalid message order")]
     InvalidMessageOrder,
 }
@@ -111,7 +123,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
                 // maybe due to the cancelation
                 Some(cnt) if cnt < req_cnt => continue,
                 // response from future request??
-                Some(cnt) if cnt > req_cnt => return Err(Error::InvalidMessageOrder),
+                Some(cnt) if cnt > req_cnt => return Err(ErrorKind::InvalidMessageOrder.into()),
                 // respone from the very request
                 Some(_) => break,
             }
@@ -224,5 +236,35 @@ impl ReceiveCtx {
     fn peek(&self) -> Option<(token::Message<'_>, Option<u64>)> {
         let count = (!self.last_is_push).then(|| self.count);
         self.reader.peek().map(|msg| (msg, count))
+    }
+}
+
+impl From<ErrorKind> for Error {
+    fn from(err: ErrorKind) -> Self {
+        Self(Box::new(err))
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Self(Box::new(err.into()))
+    }
+}
+
+impl From<token::Error> for Error {
+    fn from(err: token::Error) -> Self {
+        Self(Box::new(err.into()))
+    }
+}
+
+impl From<ser_cmd::Error> for Error {
+    fn from(err: ser_cmd::Error) -> Self {
+        Self(Box::new(err.into()))
+    }
+}
+
+impl From<de::Error> for Error {
+    fn from(err: de::Error) -> Self {
+        Self(Box::new(err.into()))
     }
 }

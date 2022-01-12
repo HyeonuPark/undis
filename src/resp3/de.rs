@@ -24,9 +24,9 @@ pub struct Deserializer<'a, 'de> {
 /// Errors that occur when deserializing the RESP3 message using serde.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// Custom stringified errors.
-    #[error("custom: {0}")]
-    Custom(String),
+    /// Serde related error.
+    #[error("serde: {0}")]
+    Serde(String),
     /// Unexpected end of the message.
     #[error("unexpected end of the message")]
     Eom,
@@ -853,7 +853,7 @@ impl de::Error for Error {
     where
         T: fmt::Display,
     {
-        Error::Custom(msg.to_string())
+        Error::Serde(msg.to_string())
     }
 }
 

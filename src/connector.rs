@@ -9,12 +9,10 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 pub use async_trait::async_trait;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{self, AsyncRead, AsyncWrite};
 #[cfg(unix)]
 use tokio::net::UnixStream;
 use tokio::net::{lookup_host, TcpStream};
-
-use crate::connection::Error;
 
 /// Connector to the Redis server.
 ///
@@ -36,7 +34,7 @@ pub trait Connector: Send + Sync {
     type Stream: AsyncRead + AsyncWrite + Debug + Unpin + Send;
 
     /// Connect to the Redis server and return the stream to it.
-    async fn connect(&self) -> Result<Self::Stream, Error>;
+    async fn connect(&self) -> io::Result<Self::Stream>;
 }
 
 /// TCP socket connector.
@@ -84,7 +82,7 @@ impl TcpConnector {
 impl Connector for TcpConnector {
     type Stream = TcpStream;
 
-    async fn connect(&self) -> Result<Self::Stream, Error> {
+    async fn connect(&self) -> io::Result<Self::Stream> {
         Ok(TcpStream::connect(self.addr).await?)
     }
 }
@@ -104,7 +102,7 @@ impl UnixConnector {
 impl Connector for UnixConnector {
     type Stream = UnixStream;
 
-    async fn connect(&self) -> Result<Self::Stream, Error> {
+    async fn connect(&self) -> io::Result<Self::Stream> {
         Ok(UnixStream::connect(&self.path).await?)
     }
 }

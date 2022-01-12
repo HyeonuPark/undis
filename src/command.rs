@@ -13,9 +13,7 @@ pub struct Mutex<T>(tokio::sync::Mutex<T>);
 
 #[async_trait]
 pub trait RawCommand: Send + Sync {
-    type Error: From<Error>;
-
-    async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Self::Error>
+    async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Error>
     where
         Req: Serialize + Send,
         Resp: DeserializeOwned;
@@ -37,7 +35,7 @@ pub trait RawCommandMut: Send {
 }
 
 impl<T: RawCommand> Command<T> {
-    pub async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, T::Error>
+    pub async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Error>
     where
         Req: Serialize + Send,
         Resp: DeserializeOwned,
@@ -54,9 +52,7 @@ impl<T> Mutex<T> {
 
 #[async_trait]
 impl<T: RawCommandMut> RawCommand for Mutex<T> {
-    type Error = Error;
-
-    async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Self::Error>
+    async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Error>
     where
         Req: Serialize + Send,
         Resp: DeserializeOwned,
@@ -67,9 +63,7 @@ impl<T: RawCommandMut> RawCommand for Mutex<T> {
 
 #[async_trait]
 impl<'a, T: RawCommand> RawCommand for &'a T {
-    type Error = T::Error;
-
-    async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Self::Error>
+    async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Error>
     where
         Req: Serialize + Send,
         Resp: DeserializeOwned,

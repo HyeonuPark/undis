@@ -1,5 +1,6 @@
 use serde::{de::DeserializeOwned, Serialize};
 
+use crate::connection::Error;
 use crate::serde_helper::{extract_struct_fields, EnsureMapLike, EnsureScalar, EnsureSequence};
 
 use super::{Command, RawCommand};
@@ -24,7 +25,7 @@ impl<T: RawCommand> Command<T> {
     /// let res = client.hdel(key, "field1").await?;
     /// assert_eq!(0, res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hdel<K, F>(&self, key: K, fields: F) -> Result<usize, T::Error>
+    pub async fn hdel<K, F>(&self, key: K, fields: F) -> Result<usize, Error>
     where
         K: Serialize + Send,
         F: Serialize + Send,
@@ -51,7 +52,7 @@ impl<T: RawCommand> Command<T> {
     /// let res = client.hexists(key, "field2").await?;
     /// assert!(!res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hexists<K, F>(&self, key: K, field: F) -> Result<bool, T::Error>
+    pub async fn hexists<K, F>(&self, key: K, field: F) -> Result<bool, Error>
     where
         K: Serialize + Send,
         F: Serialize + Send,
@@ -78,7 +79,7 @@ impl<T: RawCommand> Command<T> {
     /// let res: Option<String> = client.hget(key, "field2").await?;
     /// assert!(res.is_none());
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hget<K, F, R>(&self, key: K, field: F) -> Result<R, T::Error>
+    pub async fn hget<K, F, R>(&self, key: K, field: F) -> Result<R, Error>
     where
         K: Serialize + Send,
         F: Serialize + Send,
@@ -108,7 +109,7 @@ impl<T: RawCommand> Command<T> {
     /// assert_eq!("Hello", &res["field1"]);
     /// assert_eq!("World", &res["field2"]);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hgetall<K, R>(&self, key: K) -> Result<R, T::Error>
+    pub async fn hgetall<K, R>(&self, key: K) -> Result<R, Error>
     where
         K: Serialize + Send,
         R: DeserializeOwned,
@@ -136,7 +137,7 @@ impl<T: RawCommand> Command<T> {
     /// let res = client.hincrby(key, "field1", -10).await?;
     /// assert_eq!(-5, res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hincrby<K, F>(&self, key: K, field: F, increment: i64) -> Result<i64, T::Error>
+    pub async fn hincrby<K, F>(&self, key: K, field: F, increment: i64) -> Result<i64, Error>
     where
         K: Serialize + Send,
         F: Serialize + Send,
@@ -167,12 +168,7 @@ impl<T: RawCommand> Command<T> {
     /// let res = client.hincrbyfloat(key, "field", 2.0e2).await?;
     /// assert_eq!(5200.0, res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hincrbyfloat<K, F>(
-        &self,
-        key: K,
-        field: F,
-        increment: f64,
-    ) -> Result<f64, T::Error>
+    pub async fn hincrbyfloat<K, F>(&self, key: K, field: F, increment: f64) -> Result<f64, Error>
     where
         K: Serialize + Send,
         F: Serialize + Send,
@@ -203,7 +199,7 @@ impl<T: RawCommand> Command<T> {
     /// let res: Vec<String> = client.hkeys(key).await?;
     /// assert_eq!(&["field1".to_owned(), "field2".to_owned()][..], &res[..]);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hkeys<K, R>(&self, key: K) -> Result<R, T::Error>
+    pub async fn hkeys<K, R>(&self, key: K) -> Result<R, Error>
     where
         K: Serialize + Send,
         R: DeserializeOwned,
@@ -228,7 +224,7 @@ impl<T: RawCommand> Command<T> {
     /// let res = client.hlen(key).await?;
     /// assert_eq!(2, res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hlen<K>(&self, key: K) -> Result<usize, T::Error>
+    pub async fn hlen<K>(&self, key: K) -> Result<usize, Error>
     where
         K: Serialize + Send,
     {
@@ -261,17 +257,17 @@ impl<T: RawCommand> Command<T> {
     ///     assert_eq!(Query { field1: "Hello".into(), field2: "World".into(), nofield: None }, res);
     /// }
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hmget<K, R>(&self, key: K) -> Result<R, T::Error>
+    pub async fn hmget<K, R>(&self, key: K) -> Result<R, Error>
     where
         K: Serialize + Send,
         R: DeserializeOwned,
     {
         let fields = extract_struct_fields::<R>().ok_or_else(|| {
-            super::Error::from(crate::resp3::ser_cmd::Error::Custom(
+            crate::resp3::ser_cmd::Error::Serde(
                 "hmget_struct can only return struct with named fields \
                         with `#[derive(serde::Deserialize)]` attribute"
                     .into(),
-            ))
+            )
         })?;
         self.raw_command(("HMGET", EnsureScalar(key), fields)).await
     }
@@ -295,7 +291,7 @@ impl<T: RawCommand> Command<T> {
     /// let res: String = client.hrandfield(key).await?;
     /// assert!(["head".to_owned(), "tails".to_owned(), "edge".to_owned()].contains(&res), "res: {}", res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hrandfield<K, R>(&self, key: K) -> Result<R, T::Error>
+    pub async fn hrandfield<K, R>(&self, key: K) -> Result<R, Error>
     where
         K: Serialize + Send,
         R: DeserializeOwned,
@@ -322,7 +318,7 @@ impl<T: RawCommand> Command<T> {
     /// let res: Vec<String> = client.hrandfield_count(key, -3).await?;
     /// assert_eq!(vec!["head".to_owned(), "head".to_owned(), "head".to_owned()], res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hrandfield_count<K, R>(&self, key: K, count: isize) -> Result<R, T::Error>
+    pub async fn hrandfield_count<K, R>(&self, key: K, count: isize) -> Result<R, Error>
     where
         K: Serialize + Send,
         R: DeserializeOwned,
@@ -355,7 +351,7 @@ impl<T: RawCommand> Command<T> {
         cursor: u64,
         match_pattern: Option<&str>,
         count: Option<usize>,
-    ) -> Result<(u64, R), T::Error>
+    ) -> Result<(u64, R), Error>
     where
         K: Serialize + Send,
         R: DeserializeOwned,
@@ -387,7 +383,7 @@ impl<T: RawCommand> Command<T> {
     /// let res: String = client.hget(key, "field1").await?;
     /// assert_eq!("foo", res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hset<K, E>(&self, key: K, entries: E) -> Result<usize, T::Error>
+    pub async fn hset<K, E>(&self, key: K, entries: E) -> Result<usize, Error>
     where
         K: Serialize + Send,
         E: Serialize + Send,
@@ -414,7 +410,7 @@ impl<T: RawCommand> Command<T> {
     /// let res: String = client.hget(key, "field").await?;
     /// assert_eq!("Hello", res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hsetnx<K, F, V>(&self, key: K, field: F, value: V) -> Result<bool, T::Error>
+    pub async fn hsetnx<K, F, V>(&self, key: K, field: F, value: V) -> Result<bool, Error>
     where
         K: Serialize + Send,
         F: Serialize + Send,
@@ -451,7 +447,7 @@ impl<T: RawCommand> Command<T> {
     /// let res = client.hstrlen(key, "f3").await?;
     /// assert_eq!(4, res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hstrlen<K, F>(&self, key: K, field: F) -> Result<usize, T::Error>
+    pub async fn hstrlen<K, F>(&self, key: K, field: F) -> Result<usize, Error>
     where
         K: Serialize + Send,
         F: Serialize + Send,
@@ -478,7 +474,7 @@ impl<T: RawCommand> Command<T> {
     /// let res: Vec<String> = client.hvals(key).await?;
     /// assert_eq!(vec!["Hello".to_owned(), "World".to_owned()], res);
     /// # Ok(())})?; Ok::<(), helper::BoxError>(())
-    pub async fn hvals<K, R>(&self, key: K) -> Result<R, T::Error>
+    pub async fn hvals<K, R>(&self, key: K) -> Result<R, Error>
     where
         K: Serialize + Send,
         R: DeserializeOwned,
