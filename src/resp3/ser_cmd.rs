@@ -1,3 +1,5 @@
+//! Serialize Rust data structures into Redis command.
+
 use std::fmt;
 
 use bytes::BufMut;
@@ -6,6 +8,11 @@ use serde::ser::{self, Serialize};
 
 use super::token::Token;
 
+/// Write the command to the buffer.
+///
+/// It's important to use the returned slice as a result instead of the buffer itself.
+/// For the efficient implementation, the buffer usually contains some garbage data
+/// at its start.
 pub fn write_cmd<'a, T: serde::Serialize>(
     buf: &'a mut Vec<u8>,
     value: &T,
@@ -26,6 +33,21 @@ pub fn write_cmd<'a, T: serde::Serialize>(
     Ok(&buf[offset..])
 }
 
+/// Errors that may occur when serializing commands.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// Custom error message.
+    #[error("custom: {0}")]
+    Custom(String),
+    /// Only sequence-like types are supported as a command root.
+    #[error("only sequence-like types are supported as a command root")]
+    NotSequenceRoot,
+    /// Types nested more than 2 depth are not supported.
+    #[error("types nested more than 2 depth are not supported")]
+    NestedTooDeep,
+}
+
+/// A structure for serializing Rust values into Redis command.
 #[derive(Debug)]
 pub struct CommandSerializer<'a, B: BufMut> {
     buf: &'a mut B,
@@ -43,16 +65,6 @@ struct BlobSerializer<'a, B: BufMut> {
     buf: &'a mut B,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("custom: {0}")]
-    Custom(String),
-    #[error("only sequence-like types are supported as a command root")]
-    NotSequenceRoot,
-    #[error("deeply nested types are not supported")]
-    NestedTooDeep,
-}
-
 impl ser::Error for Error {
     fn custom<T>(msg: T) -> Self
     where
@@ -63,6 +75,7 @@ impl ser::Error for Error {
 }
 
 impl<'a, B: BufMut> CommandSerializer<'a, B> {
+    /// Creates a new Redis command serializer.
     pub fn new(buf: &'a mut B) -> Self {
         CommandSerializer { buf, count: 0 }
     }
@@ -111,7 +124,7 @@ impl<'a, B: BufMut> BlobSerializer<'a, B> {
 macro_rules! unsupported_not_seq {
     ($($name:ident)*) => {paste!{$(
         fn [<serialize_ $name>](self, _v: $name) -> Result<Self::Ok, Self::Error> {
-            Err(Error::NotSequenceRoot.into())
+            Err(Error::NotSequenceRoot)
         }
     )*}};
 }
@@ -127,14 +140,23 @@ impl<'a, B: BufMut> ser::Serializer for CommandSerializer<'a, B> {
     type SerializeStruct = ser::Impossible<usize, Error>;
     type SerializeStructVariant = ser::Impossible<usize, Error>;
 
-    unsupported_not_seq!(bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char);
+    unsupported_not_seq!(bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64);
 
-    fn serialize_str(self, _v: &str) -> Result<Self::Ok, Self::Error> {
-        Err(Error::NotSequenceRoot)
+    // char, str, bytes and unit-variant are allowed to write command without arguments
+
+    fn serialize_char(mut self, v: char) -> Result<Self::Ok, Self::Error> {
+        self.put(v.encode_utf8(&mut [0; 4]).as_bytes());
+        self.done()
     }
 
-    fn serialize_bytes(self, _v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        Err(Error::NotSequenceRoot)
+    fn serialize_str(mut self, v: &str) -> Result<Self::Ok, Self::Error> {
+        self.put(v.as_bytes());
+        self.done()
+    }
+
+    fn serialize_bytes(mut self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
+        self.put(v);
+        self.done()
     }
 
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {

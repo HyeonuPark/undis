@@ -1,3 +1,5 @@
+//! Deserialize Redis RESP3 message to a Rust data structure.
+
 use std::borrow::Cow;
 use std::num::NonZeroUsize;
 use std::{fmt, str};
@@ -8,39 +10,54 @@ use serde::de;
 use super::parse_str;
 use super::token::{Message, MessageIter, Token};
 
+/// Deserialize an instance of type `T` from a RESP3 message.
 pub fn from_msg<'de, T: serde::Deserialize<'de>>(msg: Message<'de>) -> Result<T, Error> {
     T::deserialize(Deserializer::new(&mut msg.into_iter()))
 }
 
+/// A structure that deserializes RESP3 message into Rust values.
 #[derive(Debug)]
 pub struct Deserializer<'a, 'de> {
     msg: &'a mut MessageIter<'de>,
 }
 
+/// Errors that occur when deserializing the RESP3 message using serde.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// Custom stringified errors.
     #[error("custom: {0}")]
     Custom(String),
+    /// Unexpected end of the message.
     #[error("unexpected end of the message")]
     Eom,
+    /// Error sent from the remote peer.
     #[error("error sent from the remote peer: {0}")]
     Remote(String),
+    /// Integer overflow.
     #[error("integer overflowed")]
     IntegerOverflow,
+    /// Unexpected streaming blob token.
     #[error("unexpected streaming blob token")]
     UnexpectedStreamingBlob,
+    /// Unexpected stream end token.
     #[error("unexpected stream end token")]
     UnexpectedStreamEnd,
+    /// Parse int failed.
     #[error("parse int failed")]
     ParseIntFailed,
+    /// Parse decimal number failed.
     #[error("parse decimal number failed")]
     ParseDecimalFailed,
+    /// Parse single character failed.
     #[error("parse single character failed")]
     ParseCharFailed,
+    /// Parse UTF-8 encoded string failed.
     #[error("parse string failed")]
     ParseStrFailed,
+    /// Cannot parse variant fields from single blob.
     #[error("cannot parse variant fields from single blob")]
     BlobVariantRequestFields,
+    /// Requestrd length is not match with the message.
     #[error("requested length is not match with the message")]
     LengthMismatch,
 }
@@ -73,6 +90,7 @@ struct BlobAccess<'de> {
 }
 
 impl<'a, 'de> Deserializer<'a, 'de> {
+    /// Creates a new RESP3 message deserializer.
     pub fn new(msg: &'a mut MessageIter<'de>) -> Self {
         Self { msg }
     }

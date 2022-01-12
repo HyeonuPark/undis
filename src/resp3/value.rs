@@ -9,7 +9,7 @@ use bstr::BString;
 use indexmap::IndexMap;
 use serde::de;
 
-use super::double::Double;
+use super::Double;
 
 // TODO: impl Serialize/Deserializer for Value
 

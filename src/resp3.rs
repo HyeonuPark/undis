@@ -1,10 +1,11 @@
 pub mod de;
-pub mod double;
+mod double;
 pub mod ser_cmd;
 pub mod token;
 pub mod value;
 
 pub use de::from_msg;
+pub use double::Double;
 pub use ser_cmd::write_cmd;
 pub use token::Reader;
 pub use value::Value;

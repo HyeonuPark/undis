@@ -1,3 +1,5 @@
+//! Parse and write RESP3 tokens and values.
+
 use std::num::NonZeroUsize;
 
 use bytes::{Buf, BufMut};
@@ -8,7 +10,7 @@ use super::parse_str;
 
 /// RESP3 token
 ///
-/// https://github.com/antirez/RESP3/blob/74adea588783e463c7e84793b325b088fe6edd1c/spec.md
+/// <https://github.com/antirez/RESP3/blob/74adea588783e463c7e84793b325b088fe6edd1c/spec.md>
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Token<'a> {
     /// `*42\r\n` or `*?\r\n`
@@ -47,7 +49,7 @@ pub enum Token<'a> {
     /// Double token.
     /// Its value should be representable as a f64.
     /// It can't hold the `NaN` value.
-    Double(super::double::Double),
+    Double(super::Double),
     /// `#t\r\n` or `#f\r\n`
     ///
     /// Boolean token.
@@ -135,7 +137,7 @@ pub struct Reader {
     stack_remainings: Vec<Option<NonZeroUsize>>,
 }
 
-/// Errors that can happen during the [`Reader`](self::Reader) operates.
+/// Errors that occur when parsing the RESP3 protocol.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Invalid prefix byte.
