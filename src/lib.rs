@@ -43,7 +43,7 @@
 //! # Ok(())})?; Ok::<(), helper::BoxError>(())
 //! ```
 
-// #![deny(missing_docs)]
+#![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
 
 pub mod client;

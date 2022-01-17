@@ -8,9 +8,13 @@ use once_cell::sync::Lazy;
 
 use super::parse_str;
 
-/// RESP3 token
+/// A single RESP3 token.
 ///
-/// <https://github.com/antirez/RESP3/blob/74adea588783e463c7e84793b325b088fe6edd1c/spec.md>
+/// A RESP3 message/value consists of one or more tokens.
+/// For example, a value can be a [`Blob(msg)`](Token::Blob) token,
+/// an [`Array(len)`](Token::Array) token followed by `len` values,
+/// or an [`Map(None)`](Token::Map) token followed by even number of values
+/// and a [`StreamEnd`](Token::StreamEnd) token at the end etc.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Token<'a> {
     /// `*42\r\n` or `*?\r\n`

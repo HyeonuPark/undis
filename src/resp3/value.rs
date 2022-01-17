@@ -1,6 +1,6 @@
 //! The loosely typed Value enum to represent RESP3 value.
 //!
-//! For more information, see the [`Value`](self::Value) type.
+//! For more information, see the [`Value`](Value) type.
 
 use std::cmp::{Eq, PartialEq};
 use std::fmt;

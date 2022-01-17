@@ -1,3 +1,7 @@
+//! Utility modules to parse and write RESP3 protocol.
+//!
+//! <https://github.com/antirez/RESP3/blob/74adea588783e463c7e84793b325b088fe6edd1c/spec.md>
+
 pub mod de;
 mod double;
 pub mod ser_cmd;

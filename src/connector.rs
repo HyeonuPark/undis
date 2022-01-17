@@ -1,6 +1,6 @@
 //! Connector to the Redis server.
 //!
-//! For more information, see the [`Connector`](self::Connector) trait.
+//! For more information, see the [`Connector`](Connector) trait.
 
 use std::fmt::Debug;
 use std::marker::Unpin;
@@ -25,7 +25,7 @@ use tokio::net::{lookup_host, TcpStream};
 ///
 /// ## Implement your own connector
 ///
-/// This trait uses [`async_trait`](self::async_trait) to abstract over async operation.
+/// This trait uses [`async_trait`](::async_trait) to abstract over async operation.
 /// At this point the rustdoc generates not-so-pretty document for it.
 /// If you haven't used it before, it would be better to check its own documentation first.
 #[async_trait]

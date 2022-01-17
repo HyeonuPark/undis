@@ -16,7 +16,7 @@ async fn command_canceled() -> Result<(), Error> {
     {
         // to emulate canceled command
         let mut conn = client.connection().await?;
-        conn.inner_mut().send(("PING", "a")).await?;
+        conn.get_mut().send(("PING", "a")).await?;
     }
     {
         let b: String = client.raw_command(("PING", "b")).await?;
