@@ -1,5 +1,6 @@
 use std::env;
 use std::future::Future;
+use std::time::Duration;
 
 use undis::Client;
 
@@ -18,7 +19,6 @@ pub async fn client() -> Result<Client, BoxError> {
         }
     };
     let client = Client::new(1, &url).await?;
-    println!("New redis connection: {:?}", client.server_hello());
     Ok(client)
 }
 
@@ -31,4 +31,8 @@ where
         .enable_all()
         .build()?
         .block_on(async { task(client().await?).await })
+}
+
+pub fn mostly_eq(low: Duration, high: Duration) -> bool {
+    low <= high && high - low < Duration::from_secs(1)
 }

@@ -7,7 +7,9 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::connection::Error;
 
+mod base;
 mod hash;
+mod strings;
 
 /// A wrapper to provide helper methods for each Redis commands.
 #[derive(Debug)]
@@ -17,6 +19,12 @@ pub struct Command<T: RawCommand>(pub T);
 /// into the [`Command`](Command) as all the methods of it requires `&self`.
 #[derive(Debug)]
 pub struct Mutex<T>(tokio::sync::Mutex<T>);
+
+/// To ensure response is constant "OK"
+#[derive(Debug, Deserialize)]
+enum OkResp {
+    OK,
+}
 
 /// A trait to send raw command to the Redis server with `&self`.
 #[async_trait]

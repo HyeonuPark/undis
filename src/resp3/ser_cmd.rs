@@ -637,7 +637,7 @@ impl<'a, B: BufMut> ser::Serializer for BlobSerializer<'a, B> {
         Ok(())
     }
 
-    serialize_int!(i8 i16 i32 i64 u8 u16 u32 u64);
+    serialize_int!(i8 i16 i32 i64 i128 u8 u16 u32 u64 u128);
     serialize_float!(f32 f64);
 
     fn serialize_char(mut self, v: char) -> Result<Self::Ok, Self::Error> {
