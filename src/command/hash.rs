@@ -3,12 +3,12 @@ use serde::{de::DeserializeOwned, Serialize};
 use crate::connection::Error;
 use crate::serde_helper::{extract_struct_fields, EnsureMapLike, EnsureScalar, EnsureSequence};
 
-use super::{Command, RawCommand};
+use super::{CommandHelper, RawCommand};
 
-impl<T: RawCommand> Command<T> {
+impl<T: RawCommand> CommandHelper<T> {
     /// <https://redis.io/commands/hdel>
     ///
-    /// The `key` should be a scalar type, and the `fields` should be a sequence-like type.
+    /// `key` should be a scalar type, and `fields` should be a sequence type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -36,7 +36,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/hexists>
     ///
-    /// The `key` and the `field` should be scalar types.
+    /// `key` and `field` should be scalar types.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -63,7 +63,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/hget>
     ///
-    /// The `key` and the `field` should be scalar types.
+    /// `key` and `field` should be scalar types.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -91,7 +91,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/hgetall>
     ///
-    /// The `key` should be scalar type.
+    /// `key` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -119,7 +119,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/hincrby>
     ///
-    /// The `key` and the `field` should be scalar types.
+    /// `key` and `field` should be scalar types.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -148,7 +148,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/hincrbyfloat>
     ///
-    /// The `key` and the `field` should be scalar types.
+    /// `key` and `field` should be scalar types.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -184,7 +184,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/hkeys>
     ///
-    /// The `key` should be scalar type.
+    /// `key` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -209,7 +209,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/hlen>
     ///
-    /// The `key` should be scalar type.
+    /// `key` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -233,8 +233,8 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/hmget>
     ///
-    /// The `key` should be scalar type and the returned `R` should be struct type
-    /// with `#[derive(serde::Deserialize)]`-ed struct or manual implementation with similar behavior.
+    /// `key` should be a scalar type and returned `R` *must* be
+    /// a struct type with named fields, not enum or tuple struct.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -275,7 +275,7 @@ impl<T: RawCommand> Command<T> {
     /// <https://redis.io/commands/hrandfield>
     ///
     /// `HRANDFIELD` with just the key argument.
-    /// The `key` should be scalar type.
+    /// `key` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -302,7 +302,7 @@ impl<T: RawCommand> Command<T> {
     /// <https://redis.io/commands/hrandfield>
     ///
     /// `HRANDFIELD` with count and optional `WITHVALUES` specifier.
-    /// The `key` should be scalar type.
+    /// `key` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -329,7 +329,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/hscan>
     ///
-    /// The `key` should be scalar type.
+    /// `key` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -368,7 +368,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/hset>
     ///
-    /// The `key` should be a scalar type, and the `entries` should be a map-like type.
+    /// `key` should be a scalar type, and `entries` should be a map-like type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -394,7 +394,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/hsetnx>
     ///
-    /// The `key`, `field` and the `value` should be scalar types.
+    /// `key`, `field` and `value` should be scalar types.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -427,7 +427,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/hstrlen>
     ///
-    /// The `key` and the `field` should be scalar types.
+    /// `key` and `field` should be scalar types.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -458,7 +458,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/hvals>
     ///
-    /// The `key` should be scalar type.
+    /// `key` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {

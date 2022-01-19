@@ -1,4 +1,4 @@
-//! The loosely typed Value enum to represent RESP3 value.
+//! A loosely typed Value enum to represent RESP3 values.
 //!
 //! For more information, see the [`Value`](Value) type.
 
@@ -13,21 +13,21 @@ use super::Double;
 
 // TODO: impl Serialize/Deserializer for Value
 
-/// Represents any valid RESP3 value.
+/// Represents a valid RESP3 value.
 ///
-/// This is useful to represent some flexible message like `HELLO` response
-/// or to _see_ the structure of some [`.raw_command()`](crate::Client::raw_command) response.
+/// This is useful for representing flexible messages like `HELLO` response,
+/// or to _see_ the structure of some [`.raw_command()`](crate::Client::raw_command) responses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
     /// Null value.
     Null,
-    /// Binary string. Can be obtained from simple string, blog string, blog string stream.
+    /// Binary string. Can be obtained from simple string, blob string, blob string stream.
     /// It conventionally but not necessarily is a UTF-8 encoded string.
     Blob(BString),
     /// Boolean value.
     Boolean(bool),
     /// Integer value in the form of i128.
-    /// This type doesn't supports numbers which can't be represented within this range
+    /// This type doesn't support numbers which can't be represented within this range
     /// though the RESP3 protocol itself supports arbitrary big integers.
     Number(i128),
     /// Double precision floating point number which can't be NaN.
@@ -35,7 +35,7 @@ pub enum Value {
     /// Array of values.
     Array(Vec<Value>),
     /// Map of values, keyed by binary strings.
-    /// Order is preserved to print hello message nicely.
+    /// Order is preserved in order to print Hello response nicely.
     Map(IndexMap<BString, Value>),
 }
 

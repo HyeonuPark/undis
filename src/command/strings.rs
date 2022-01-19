@@ -3,12 +3,12 @@ use serde::{de::DeserializeOwned, Serialize};
 use crate::connection::Error;
 use crate::serde_helper::{EnsureMapLike, EnsureScalar, EnsureSequence};
 
-use super::{Command, OkResp, RawCommand};
+use super::{CommandHelper, OkResp, RawCommand};
 
-impl<T: RawCommand> Command<T> {
+impl<T: RawCommand> CommandHelper<T> {
     /// <https://redis.io/commands/append>
     ///
-    /// The `key` and the `value` should be scalar types.
+    /// `key` and `value` should be scalar types.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -33,7 +33,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/decr>
     ///
-    /// The `key` should be scalar type.
+    /// `key` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -54,7 +54,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/decrby>
     ///
-    /// The `key` should be scalar type.
+    /// `key` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -73,7 +73,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/get>
     ///
-    /// The `key` should be scalar type.
+    /// `key` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -94,7 +94,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/getrange>
     ///
-    /// The `key` should be scalar type.
+    /// `key` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -120,7 +120,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/incr>
     ///
-    /// The `key` should be scalar type.
+    /// `key` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -140,7 +140,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/incrby>
     ///
-    /// The `key` should be scalar type.
+    /// `key` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -159,7 +159,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/incrbyfloat>
     ///
-    /// The `key` should be scalar type.
+    /// `key` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -183,7 +183,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/mget>
     ///
-    /// The `keys` should be sequenc type.
+    /// `keys` should be a sequence type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -208,7 +208,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/mset>
     ///
-    /// The `entries` should be map-like type.
+    /// `entries` should be a map-like type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -234,7 +234,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/set>
     ///
-    /// The `key` and the `value` should be scalar types.
+    /// `key` and `value` should be scalar types.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -256,7 +256,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/setrange>
     ///
-    /// The `key` and the `value` should be scalar types.
+    /// `key` and `value` should be scalar types.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -284,7 +284,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/strlen>
     ///
-    /// The `key` should be scalar type.
+    /// `key` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {

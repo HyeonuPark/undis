@@ -5,12 +5,12 @@ use serde::{de::DeserializeOwned, Serialize};
 use crate::connection::Error;
 use crate::serde_helper::{EnsureScalar, EnsureSequence};
 
-use super::{Command, RawCommand};
+use super::{CommandHelper, RawCommand};
 
-impl<T: RawCommand> Command<T> {
+impl<T: RawCommand> CommandHelper<T> {
     /// <https://redis.io/commands/copy>
     ///
-    /// The `source` and the `destination` should be scalar types.
+    /// `source` and the `destination` should be scalar types.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -45,7 +45,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/del>
     ///
-    /// The `keys` should be sequenc type.
+    /// `keys` should be a sequence type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -65,7 +65,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/exists>
     ///
-    /// The `keys` should be sequenc type.
+    /// `keys` should be a sequence type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -87,10 +87,10 @@ impl<T: RawCommand> Command<T> {
         self.raw_command(("EXISTS", EnsureSequence(keys))).await
     }
 
-    /// Same as [`.exists()`](Command::exists),
+    /// Same as [`.exists()`](CommandHelper::exists),
     /// but takes single key and returns `bool`.
     ///
-    /// The `key` should be scalar type.
+    /// `key` should be a scalar type.
     /// ```
     /// # helper::with_client(|client| async move {
     /// # let key = "doctest_client_base_exists_3";
@@ -109,10 +109,9 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/pexpire>
     ///
-    /// Despite the name of the method,
-    /// it uses `PEXPIRE` for the millisecond accuracy.
+    /// Despite the name, this method uses `PEXPIRE`, not `EXPIRE`, for millisecond-level accuracy.
     ///
-    /// The `keys` should be scalar type.
+    /// `keys` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -136,10 +135,9 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/pexpireat>
     ///
-    /// Despite the name of the method,
-    /// it uses `PEXPIREAT` for the millisecond accuracy.
+    /// Despite the name, this method uses `PEXPIREAT`, not `EXPIREAT`, for millisecond-level accuracy.
     ///
-    /// The `keys` should be scalar type.
+    /// `keys` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -170,10 +168,9 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/pttl>
     ///
-    /// Despite the name of the method,
-    /// it uses `PTTL` for the millisecond accuracy.
+    /// Despite the name, this method uses `PTTL`, not `TTL`, for millisecond-level accuracy.
     ///
-    /// The `keys` should be scalar type.
+    /// `keys` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {
@@ -196,7 +193,7 @@ impl<T: RawCommand> Command<T> {
 
     /// <https://redis.io/commands/scan>
     ///
-    /// The `key` should be scalar type.
+    /// `key` should be a scalar type.
     ///
     /// ```
     /// # helper::with_client(|client| async move {

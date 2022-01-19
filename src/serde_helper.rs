@@ -1,4 +1,4 @@
-//! Helper tools for serde-related situations.
+//! Helper tools for serde.
 
 mod ensure_map_like;
 mod ensure_scalar;

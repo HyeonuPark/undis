@@ -1,8 +1,8 @@
 //! Helper methods for each Redis commands.
 //!
-//! For more information, see the [`Command`](Command) type.
+//! For more information, see the [`CommandHelper`](CommandHelper) type.
 
-use async_trait::async_trait;
+use futures_core::future::BoxFuture;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::connection::Error;
@@ -11,73 +11,72 @@ mod base;
 mod hash;
 mod strings;
 
-/// A wrapper to provide helper methods for each Redis commands.
+/// A wrapper to provide helper methods for each Redis command.
 #[derive(Debug)]
-pub struct Command<T: RawCommand>(pub T);
+pub struct CommandHelper<T: RawCommand>(pub T);
 
 /// A Mutex-based wrapper to adapt [`impl RawCommandMut`](RawCommandMut)
-/// into the [`Command`](Command) as all the methods of it requires `&self`.
+/// into [`CommandHelper`](CommandHelper). This is required since all its methods require `&self`.
 #[derive(Debug)]
 pub struct Mutex<T>(tokio::sync::Mutex<T>);
 
-/// To ensure response is constant "OK"
+// To ensure response is constant "OK"
 #[derive(Debug, Deserialize)]
 enum OkResp {
     OK,
 }
 
-/// A trait to send raw command to the Redis server with `&self`.
-#[async_trait]
+/// A trait for sending raw commands to the Redis server with `&self`.
 pub trait RawCommand: Send + Sync {
-    /// Send any command and get response of it.
+    /// Sends any command and get a response.
     ///
     /// Both command and response are serialized/deserialized using [`serde`](serde).
-    /// Check out the [serializer](crate::resp3::ser_cmd::CommandSerializer)
-    /// and [deserializer](crate::resp3::de::Deserializer) documents for details.
+    /// See [`CommandSerializer`](crate::resp3::ser_cmd::CommandSerializer)
+    /// and [`Deserializer`](crate::resp3::de::Deserializer) for details.
     ///
-    /// Implementations may also have inherent method with same name and functionality
-    /// to reduce allocation/dynamic dispatch due to the current limitation
-    /// of the [`async_trait`](::async_trait) macro.
-    async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Error>
+    /// Implementations may also supply an inherent method with the same name and functionality
+    /// to reduce allocation/dynamic dispatch.
+    fn raw_command<'a, Req, Resp>(&'a self, request: Req) -> BoxFuture<'a, Result<Resp, Error>>
     where
-        Req: Serialize + Send,
-        Resp: DeserializeOwned;
+        Req: Serialize + Send + 'a,
+        Resp: DeserializeOwned + 'a;
 }
 
-/// A trait to send raw command to the Redis server with `&mut self`.
-#[async_trait]
+/// A trait for sending raw commands to the Redis server with `&mut self`.
 pub trait RawCommandMut: Send {
-    /// Send any command and get response of it.
+    /// Sends any command and get a response.
     ///
     /// Both command and response are serialized/deserialized using [`serde`](serde).
-    /// Check out the [serializer](crate::resp3::ser_cmd::CommandSerializer)
-    /// and [deserializer](crate::resp3::de::Deserializer) documents for details.
+    /// See [`CommandSerializer`](crate::resp3::ser_cmd::CommandSerializer)
+    /// and [`Deserializer`](crate::resp3::de::Deserializer) for details.
     ///
-    /// Returned response may contains a reference to the connection's internal receive buffer.
+    /// Returned response may contain a reference to the connection's internal receive buffer.
     ///
     /// Implementations may also have inherent method with same name and functionality
-    /// to reduce allocation/dynamic dispatch due to the current limitation
-    /// of the [`async_trait`](::async_trait) macro.
-    async fn raw_command<'de, Req, Resp>(&'de mut self, request: Req) -> Result<Resp, Error>
+    /// to reduce allocation/dynamic dispatch.
+    fn raw_command<'de, Req, Resp>(
+        &'de mut self,
+        request: Req,
+    ) -> BoxFuture<'de, Result<Resp, Error>>
     where
-        Req: Serialize + Send,
-        Resp: Deserialize<'de>;
+        Req: Serialize + Send + 'de,
+        Resp: Deserialize<'de> + 'de;
 
-    /// Wrap the `self` with additional types to allow to call helper methods on it.
-    fn command(self) -> Command<Mutex<Self>>
+    /// Wraps `self` to allow calling helper methods.
+    fn command(self) -> CommandHelper<Mutex<Self>>
     where
         Self: Sized,
     {
-        Command(Mutex::new(self))
+        CommandHelper(Mutex::new(self))
     }
 }
 
-impl<T: RawCommand> Command<T> {
-    /// Send any command and get response of it.
+impl<T: RawCommand> CommandHelper<T> {
+    /// Sends any command and get a response.
     ///
     /// Both command and response are serialized/deserialized using [`serde`](serde).
-    /// Check out the [serializer](crate::resp3::ser_cmd::CommandSerializer)
-    /// and [deserializer](crate::resp3::de::Deserializer) documents for details.
+    /// See [`CommandSerializer`](crate::resp3::ser_cmd::CommandSerializer)
+    /// and [`Deserializer`](crate::resp3::de::Deserializer) for details.
     pub async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Error>
     where
         Req: Serialize + Send,
@@ -87,39 +86,38 @@ impl<T: RawCommand> Command<T> {
     }
 }
 
-impl<T: RawCommand> From<T> for Command<T> {
+impl<T: RawCommand> From<T> for CommandHelper<T> {
     fn from(v: T) -> Self {
-        Command(v)
+        CommandHelper(v)
     }
 }
 
 impl<T> Mutex<T> {
-    /// Construct a mutex from the value.
+    /// Constructs a mutex from the value.
     pub fn new(value: T) -> Self {
         Mutex(tokio::sync::Mutex::new(value))
     }
 
-    /// Gets a mutable reference to the underlying data.
+    /// Returns a mutable reference to the underlying data.
     ///
     /// It doesn't require any synchronization as it takes `&mut self`.
     pub fn get_mut(&mut self) -> &mut T {
         self.0.get_mut()
     }
 
-    /// Consumes this mutex and return the underlying data.
+    /// Consumes this mutex, returning the underlying data.
     pub fn into_inner(self) -> T {
         self.0.into_inner()
     }
 }
 
-#[async_trait]
 impl<T: RawCommandMut> RawCommand for Mutex<T> {
-    async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Error>
+    fn raw_command<'a, Req, Resp>(&'a self, request: Req) -> BoxFuture<'a, Result<Resp, Error>>
     where
-        Req: Serialize + Send,
+        Req: Serialize + Send + 'a,
         Resp: DeserializeOwned,
     {
-        self.0.lock().await.raw_command(request).await
+        Box::pin(async move { self.0.lock().await.raw_command(request).await })
     }
 }
 
@@ -129,24 +127,25 @@ impl<T> From<T> for Mutex<T> {
     }
 }
 
-#[async_trait]
-impl<'a, T: RawCommand> RawCommand for &'a T {
-    async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Error>
+impl<'r, T: RawCommand> RawCommand for &'r T {
+    fn raw_command<'a, Req, Resp>(&'a self, request: Req) -> BoxFuture<'a, Result<Resp, Error>>
     where
-        Req: Serialize + Send,
-        Resp: DeserializeOwned,
+        Req: Serialize + Send + 'a,
+        Resp: DeserializeOwned + 'a,
     {
-        (**self).raw_command(request).await
+        (**self).raw_command(request)
     }
 }
 
-#[async_trait]
 impl<'a, T: RawCommandMut> RawCommandMut for &'a mut T {
-    async fn raw_command<'de, Req, Resp>(&'de mut self, request: Req) -> Result<Resp, Error>
+    fn raw_command<'de, Req, Resp>(
+        &'de mut self,
+        request: Req,
+    ) -> BoxFuture<'de, Result<Resp, Error>>
     where
-        Req: Serialize + Send,
-        Resp: Deserialize<'de>,
+        Req: Serialize + Send + 'de,
+        Resp: Deserialize<'de> + 'de,
     {
-        (**self).raw_command(request).await
+        (**self).raw_command(request)
     }
 }

@@ -10,9 +10,9 @@ use super::token::Token;
 
 /// Write the command to the buffer.
 ///
-/// It's important to use the returned slice as a result instead of the buffer itself.
-/// For the efficient implementation, the buffer usually contains some garbage data
-/// at its start.
+/// *Do not use* the content of the buffer itself; use the returned slice instead.
+/// For efficiency, the buffer may contain invalid bytes at the beginning after this operation,
+/// and therefore using its content as command may result in failure.
 pub fn write_cmd<'a, T: serde::Serialize>(
     buf: &'a mut Vec<u8>,
     value: &T,

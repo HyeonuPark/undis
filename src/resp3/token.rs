@@ -122,15 +122,18 @@ pub struct MessageIter<'a> {
 /// # use bytes::BufMut;
 /// let mut reader = Reader::new();
 /// reader.buf().put_slice(b"$12\r\nHello w");
-/// assert_eq!(None, reader.read()?);
+/// assert!(reader.message_not_ready()?);
+/// assert_eq!(None, reader.message());
 /// reader.buf().put_slice(b"orld!\r\n*2\r");
-/// assert_eq!(b"$12\r\nHello world!\r\n", reader.read()?.unwrap().as_ref());
+/// assert_eq!(None, reader.message());
+/// assert!(!reader.message_not_ready()?);
+/// assert_eq!(b"$12\r\nHello world!\r\n", reader.message().unwrap().as_ref());
 /// reader.buf().put_slice(b"\n:1\r\n:2\r\n-wh");
-/// assert_eq!(b"$12\r\nHello world!\r\n", reader.read()?.unwrap().as_ref());
-/// reader.consume();
-/// assert_eq!(b"*2\r\n:1\r\n:2\r\n", reader.read()?.unwrap().as_ref());
-/// reader.consume();
-/// assert_eq!(None, reader.read()?);
+/// assert_eq!(b"$12\r\nHello world!\r\n", reader.message().unwrap().as_ref());
+/// assert!(!reader.message_not_ready()?);
+/// assert_eq!(b"*2\r\n:1\r\n:2\r\n", reader.message().unwrap().as_ref());
+/// assert!(reader.message_not_ready()?);
+/// assert_eq!(None, reader.message());
 /// # Ok::<_, Error>(())
 /// ```
 #[derive(Debug)]
@@ -320,8 +323,8 @@ impl<'a> Token<'a> {
     /// Start with the stack with `vec![Some(amt)]`
     /// where `amt` is the amount of token trees
     /// and keep call this function with new tokens
-    /// until the stack being emptied.
-    pub fn process_stack(&self, stack: &mut Vec<Option<NonZeroUsize>>) -> Result<(), Error> {
+    /// until the stack is empty.
+    pub(crate) fn process_stack(&self, stack: &mut Vec<Option<NonZeroUsize>>) -> Result<(), Error> {
         let is_attr = matches!(self, Attribute(_));
         let is_stream_end = matches!(self, StreamEnd);
 
@@ -431,12 +434,25 @@ impl Reader {
     /// Returns `Ok(None)` if more bytes needed to parse.
     /// To get next message after this call, you need to call `.consume()`
     /// otherwise the same message would be returned again.
-    pub fn read(&mut self) -> Result<Option<Message<'_>>, Error> {
+    ///
+    /// Consume the previous parsed messageand parse remaining bytes
+    /// to check if new message is ready.
+    ///
+    /// `Ok(true)` means more bytes are needed to be read to parse a full message.
+    /// After returning `Ok(false)` it's guaranteed that `.message()` returns `Some(msg)`.
+    pub fn message_not_ready(&mut self) -> Result<bool, Error> {
+        if self.stack_remainings.is_empty() {
+            self.buf.drain(..self.parsed_offset);
+            self.parsed_tokens = 0;
+            self.parsed_offset = 0;
+            self.stack_remainings.push(Some(ONE)); // to parse 1 msg next time
+        }
+
         while !self.stack_remainings.is_empty() {
             let mut buf = &self.buf[self.parsed_offset..];
             let token = match next_token(&mut buf) {
                 Ok(tok) => tok,
-                Err(None) => return Ok(None),
+                Err(None) => return Ok(true),
                 Err(Some(err)) => return Err(err),
             };
             self.parsed_tokens += 1;
@@ -445,13 +461,11 @@ impl Reader {
             token.process_stack(&mut self.stack_remainings)?;
         }
 
-        let msg = self.peek();
-        assert!(msg.is_some(), "msg should exist at this point");
-        Ok(msg)
+        Ok(false)
     }
 
     /// Peek a message stored within the `Reader` without modifying internal state.
-    pub fn peek(&self) -> Option<Message<'_>> {
+    pub fn message(&self) -> Option<Message<'_>> {
         self.stack_remainings.is_empty().then(|| {
             debug_assert!(self.parsed_tokens > 0, "Message should never be empty");
             Message {

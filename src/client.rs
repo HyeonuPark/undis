@@ -2,18 +2,17 @@
 //!
 //! For more information, see the [`Client`](Client) type.
 
-use std::num::NonZeroUsize;
 use std::ops;
 use std::sync::atomic::{self, AtomicU64};
 use std::sync::{Arc, RwLock};
 
 use async_channel::{Receiver, Sender};
-use async_trait::async_trait;
+use futures_core::future::BoxFuture;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{OwnedSemaphorePermit as Permit, Semaphore};
 
-use crate::command::{self, Command};
+use crate::command::{self, CommandHelper};
 use crate::connection::{Connection as RawConnection, Error};
 use crate::connector::{Connector, LookupError, TcpConnector};
 use crate::resp3::{de, value::Value};
@@ -21,26 +20,25 @@ use crate::resp3::{de, value::Value};
 #[cfg(test)]
 mod tests;
 
-/// A Redis Client.
+/// A Redis client.
 ///
-/// The `Client` can use various channels to connect to the Redis server.
+/// A `Client` can use various channels to connect to a Redis server.
 /// By default it uses TCP, but UDS and custom streams are available.
-/// Connection parameters used by the `Client` can be configured using the [`Builder`](Client::builder).
+/// Connection parameters used by a `Client` can be configured using a [`Builder`](Client::builder).
 ///
-/// The `Client` initiate connection to the Redis server and manage a pool of it.
-/// If you clone the `Client` it will share the pool with the previous one.
+/// A `Client` manages a pool of connections to a Redis server.
+/// Cloning a `Client` will result in a copy that shares the pool with the original one.
 ///
-/// This type is a thin wrapper over the [`Arc<Command<ClientShared>>`](ClientShared) type.
-/// You don't need to re-wrap it with [`Arc`](std::sync::Arc) or simmilar.
+/// You do *not* need to re-wrap it with [`Arc`](std::sync::Arc) or similar, since it already uses an `Arc` internally.
 #[derive(Debug)]
 pub struct Client<T: Connector = TcpConnector> {
-    shared: Arc<Command<ClientShared<T>>>,
+    shared: Arc<CommandHelper<ClientShared<T>>>,
 }
 
 /// Internal shared structure behind the [`Client`](Client). You may not need to use it directly.
 ///
-/// Main purpose to expose this type is to make `Client` `Deref<Target = Command<ClientShared<T>>>`.
-/// You can use it to reduce indirection, though.
+/// Main purpose of exposing this type is to make `Client` `Deref<Target = Command<ClientShared<T>>>`.
+/// You may also use this to reduce indirection.
 #[derive(Debug)]
 pub struct ClientShared<T: Connector> {
     connector: T,
@@ -52,19 +50,17 @@ pub struct ClientShared<T: Connector> {
     semaphore: Arc<Semaphore>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct Init {
     auth: Option<(String, String)>,
     setname: Option<String>,
     select: Option<u32>,
 }
 
-/// [`Connection`] tied to the [`Cilent`](Client)'s pool.
+/// `Connection` tied to the [`Client`](Client)'s pool.
 ///
-/// When it dropped without [`.into_inner()`](Connection::into_inner) call,
-/// the connection will be returned to the connection pool.
-///
-/// To use helper methods on it, use [`.command()`](crate::command::RawCommandMut::command) method.
+/// When dropped without a [`.into_inner()`](Connection::into_inner) call,
+/// the connection managed by this `Connection` will be returned to the connection pool.
 #[derive(Debug)]
 pub struct Connection<T> {
     entry: Option<Entry<RawConnection<T>>>,
@@ -77,44 +73,37 @@ struct Entry<T> {
     _permit: Permit,
 }
 
-/// A `Builder` to construct [`Client`](Client) with parameters.
-#[derive(Debug)]
+/// A `Builder` for constructing a [`Client`](Client) with custom parameters.
+#[derive(Debug, Default)]
 pub struct Builder {
-    max_connections: usize,
     init: Init,
 }
 
-/// Errors that occur when binding the client to some address.
+/// Errors that occur when building the client.
 #[derive(Debug, thiserror::Error)]
-pub enum BindError {
+pub enum BuildError {
     /// DNS lookup failed.
     #[error("DNS lookup failed")]
     Lookup(#[from] LookupError),
     /// Connection error.
     #[error("connection error")]
     Connection(#[from] Error),
+    /// Max connections is set as 0
+    #[error("max_connections is set as 0")]
+    MaxConnectionsZero,
 }
 
 impl Client<TcpConnector> {
-    /// Create a client with default configurations.
+    /// Constructs a client with default configurations.
     ///
     /// If you need more tweaks use [`Client::builder()`](Self::builder) instead.
-    ///
-    /// # Panic
-    ///
-    /// It panics if `max_connections` is zero.
-    pub async fn new(max_connections: usize, addr: &str) -> Result<Self, BindError> {
-        Self::builder(NonZeroUsize::new(max_connections).unwrap())
-            .bind(addr)
-            .await
+    pub async fn new(max_connections: usize, addr: &str) -> Result<Self, BuildError> {
+        Self::builder().bind(max_connections, addr).await
     }
 
-    /// Create a client builder with the `max_connections` parameter.
-    ///
-    /// To build client without the [`TcpConnector`](crate::connector::TcpConnector)
-    /// you need to use this method.
-    pub fn builder(max_connections: NonZeroUsize) -> Builder {
-        Builder::new(max_connections)
+    /// Constructs a `Builder` to construct a `Client` with custom parameters.
+    pub fn builder() -> Builder {
+        Builder::new()
     }
 }
 
@@ -124,11 +113,11 @@ impl<T: Connector> Client<T> {
         self.shared.0.server_hello()
     }
 
-    /// Send any command and get response of it.
+    /// Sends any command and get a response.
     ///
     /// Both command and response are serialized/deserialized using [`serde`](serde).
-    /// Check out the [serializer](crate::resp3::ser_cmd::CommandSerializer)
-    /// and [deserializer](crate::resp3::de::Deserializer) documents for details.
+    /// See [`CommandSerializer`](crate::resp3::ser_cmd::CommandSerializer)
+    /// and [`Deserializer`](crate::resp3::de::Deserializer) for details.
     pub async fn raw_command<Req: Serialize, Resp: DeserializeOwned>(
         &self,
         request: Req,
@@ -136,16 +125,16 @@ impl<T: Connector> Client<T> {
         self.shared.0.raw_command(request).await
     }
 
-    /// Get a connection from the pool, or create one if not available.
+    /// Gets a connection from the pool, creating one if not available.
     ///
-    /// Normally dropped [`Connection`](Connection) will be returned to the [`Client`](Client)'s pool.
+    /// Normally, a dropped [`Connection`](Connection) will be returned to the [`Client`](Client)'s pool.
     pub async fn connection(&self) -> Result<Connection<T::Stream>, Error> {
         self.shared.0.connection().await
     }
 }
 
 impl<T: Connector> ops::Deref for Client<T> {
-    type Target = Command<ClientShared<T>>;
+    type Target = CommandHelper<ClientShared<T>>;
 
     fn deref(&self) -> &Self::Target {
         &self.shared
@@ -160,70 +149,81 @@ impl<T: Connector> Clone for Client<T> {
     }
 }
 
-#[async_trait]
 impl<T: Connector> command::RawCommand for Client<T> {
-    async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Error>
+    fn raw_command<'a, Req, Resp>(&'a self, request: Req) -> BoxFuture<'a, Result<Resp, Error>>
     where
-        Req: Serialize + Send,
-        Resp: DeserializeOwned,
+        Req: Serialize + Send + 'a,
+        Resp: DeserializeOwned + 'a,
     {
-        self.raw_command(request).await
+        Box::pin(self.raw_command(request))
     }
 }
 
 impl<T: Connector> From<ClientShared<T>> for Client<T> {
     fn from(shared: ClientShared<T>) -> Self {
         Client {
-            shared: Arc::new(Command(shared)),
+            shared: Arc::new(CommandHelper(shared)),
         }
     }
 }
 
-impl<T: Connector> From<Arc<Command<ClientShared<T>>>> for Client<T> {
-    fn from(shared: Arc<Command<ClientShared<T>>>) -> Self {
+impl<T: Connector> From<Arc<CommandHelper<ClientShared<T>>>> for Client<T> {
+    fn from(shared: Arc<CommandHelper<ClientShared<T>>>) -> Self {
         Client { shared }
     }
 }
 
-impl<T: Connector> From<Client<T>> for Arc<Command<ClientShared<T>>> {
+impl<T: Connector> From<Client<T>> for Arc<CommandHelper<ClientShared<T>>> {
     fn from(client: Client<T>) -> Self {
         client.shared
     }
 }
 
 impl Builder {
-    /// Create a client builder with the `max_connections` parameter.
-    pub fn new(max_connections: NonZeroUsize) -> Builder {
-        Builder {
-            max_connections: max_connections.get(),
-            init: Init {
-                auth: None,
-                setname: None,
-                select: None,
-            },
+    /// Constructs a client builder.
+    pub fn new() -> Builder {
+        Builder::default()
+    }
+
+    /// Binds the `Client` from the `max_connections`
+    /// and a string representation of a socket address. This may perform a DNS lookup.
+    pub async fn bind(
+        self,
+        max_connections: usize,
+        addr: &str,
+    ) -> Result<Client<TcpConnector>, BuildError> {
+        Ok(self
+            .build(max_connections, TcpConnector::lookup(addr).await?)
+            .await?)
+    }
+
+    /// Builds a `Client` with the `max_connections` and the `connector`.
+    pub async fn build<T: Connector>(
+        self,
+        max_connections: usize,
+        connector: T,
+    ) -> Result<Client<T>, BuildError> {
+        Ok(self.build_shared(max_connections, connector).await?.into())
+    }
+
+    /// Builds a `ClientShared` with the `max_connections` and the `connector`.
+    pub async fn build_shared<T: Connector>(
+        self,
+        max_connections: usize,
+        connector: T,
+    ) -> Result<ClientShared<T>, BuildError> {
+        if max_connections == 0 {
+            return Err(BuildError::MaxConnectionsZero);
         }
-    }
 
-    /// Bind the `Client` to the address string, may perform DNS lookup.
-    pub async fn bind(self, addr: &str) -> Result<Client<TcpConnector>, BindError> {
-        Ok(self.build(TcpConnector::lookup(addr).await?).await?)
-    }
-
-    /// Build the `Client` with the `connector`.
-    pub async fn build<T: Connector>(self, connector: T) -> Result<Client<T>, Error> {
-        Ok(self.build_shared(connector).await?.into())
-    }
-
-    /// Build the `ClientShared` with the `connector`.
-    pub async fn build_shared<T: Connector>(self, connector: T) -> Result<ClientShared<T>, Error> {
         let (conn, hello) = make_connection(&connector, &self.init).await?;
-        let semaphore = Arc::new(Semaphore::new(self.max_connections));
+        let semaphore = Arc::new(Semaphore::new(max_connections));
         let permit = semaphore
             .clone()
             .acquire_owned()
             .await
             .expect("semaphore should have at least 1 permits left");
-        let (sender, receiver) = async_channel::bounded(self.max_connections);
+        let (sender, receiver) = async_channel::bounded(max_connections);
 
         sender
             .try_send(Entry {
@@ -243,8 +243,8 @@ impl Builder {
         })
     }
 
-    /// Set the `username` and `password` parameters to be passed
-    /// to [the `AUTH` parameter](https://redis.io/commands/hello)
+    /// Sets the `username` and `password` parameters to be passed in
+    /// as [the `AUTH` parameter](https://redis.io/commands/hello)
     /// of the initial `HELLO` command.
     ///
     /// By default, `AUTH` parameter is not passed.
@@ -253,8 +253,8 @@ impl Builder {
         self
     }
 
-    /// Set the `clientname` parameter to be passed
-    /// to [the `SETNAME` parameter](https://redis.io/commands/hello)
+    /// Sets the `clientname` parameter to be passed in
+    /// as [the `SETNAME` parameter](https://redis.io/commands/hello)
     /// of the initial `HELLO` command.
     ///
     /// By default, `SETNAME` parameter is not passed.
@@ -263,8 +263,8 @@ impl Builder {
         self
     }
 
-    /// Set the `index` parameter to be passed
-    /// to [the `SELECT` command](https://redis.io/commands/select)
+    /// Sets the `index` parameter to be passed in
+    /// as [the `SELECT` command](https://redis.io/commands/select)
     /// after the initial `HELLO` command.
     ///
     /// By default, `SELECT` command is not sent.
@@ -299,11 +299,11 @@ impl<T: Connector> ClientShared<T> {
         Arc::clone(&self.server_hello.read().unwrap())
     }
 
-    /// Send any command and get response of it.
+    /// Sends any command and get a response.
     ///
     /// Both command and response are serialized/deserialized using [`serde`](serde).
-    /// Check out the [serializer](crate::resp3::ser_cmd::CommandSerializer)
-    /// and [deserializer](crate::resp3::de::Deserializer) documents for details.
+    /// See [`CommandSerializer`](crate::resp3::ser_cmd::CommandSerializer)
+    /// and [`Deserializer`](crate::resp3::de::Deserializer) for details.
     pub async fn raw_command<Req: Serialize, Resp: DeserializeOwned>(
         &self,
         request: Req,
@@ -312,9 +312,9 @@ impl<T: Connector> ClientShared<T> {
         Ok(conn.raw_command(request).await?)
     }
 
-    /// Get a connection from the pool, or create one if not available.
+    /// Gets a connection from the pool, creating one if not available.
     ///
-    /// Normally dropped [`Connection`](Connection) will be returned to the [`Client`](Client)'s pool.
+    /// Normally, dropped [`Connection`](Connection) will be returned to the [`Client`](Client)'s pool.
     pub async fn connection(&self) -> Result<Connection<T::Stream>, Error> {
         async fn wrap<T: Connector>(
             client: &ClientShared<T>,
@@ -362,25 +362,24 @@ impl<T: Connector> ClientShared<T> {
     }
 }
 
-#[async_trait]
 impl<T: Connector> command::RawCommand for ClientShared<T> {
-    async fn raw_command<Req, Resp>(&self, request: Req) -> Result<Resp, Error>
+    fn raw_command<'a, Req, Resp>(&'a self, request: Req) -> BoxFuture<'a, Result<Resp, Error>>
     where
-        Req: Serialize + Send,
-        Resp: DeserializeOwned,
+        Req: Serialize + Send + 'a,
+        Resp: DeserializeOwned + 'a,
     {
-        self.raw_command(request).await
+        Box::pin(self.raw_command(request))
     }
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
-    /// Send any command and get response of it.
+    /// Sends any command and get a response.
     ///
     /// Both command and response are serialized/deserialized using [`serde`](serde).
-    /// Check out the [serializer](crate::resp3::ser_cmd::CommandSerializer)
-    /// and [deserializer](crate::resp3::de::Deserializer) documents for details.
+    /// See [`CommandSerializer`](crate::resp3::ser_cmd::CommandSerializer)
+    /// and [`Deserializer`](crate::resp3::de::Deserializer) for details.
     ///
-    /// Returned response may contains a reference to the connection's internal receive buffer.
+    /// Returned response may contain a reference to the connection's internal receive buffer.
     pub async fn raw_command<'de, Req: Serialize, Resp: Deserialize<'de>>(
         &'de mut self,
         request: Req,
@@ -415,13 +414,15 @@ impl<T> ops::Drop for Connection<T> {
     }
 }
 
-#[async_trait]
 impl<T: AsyncRead + AsyncWrite + Send + Unpin> command::RawCommandMut for Connection<T> {
-    async fn raw_command<'de, Req, Resp>(&'de mut self, request: Req) -> Result<Resp, Error>
+    fn raw_command<'de, Req, Resp>(
+        &'de mut self,
+        request: Req,
+    ) -> BoxFuture<'de, Result<Resp, Error>>
     where
-        Req: Serialize + Send,
-        Resp: Deserialize<'de>,
+        Req: Serialize + Send + 'de,
+        Resp: Deserialize<'de> + 'de,
     {
-        self.raw_command(request).await
+        Box::pin(self.raw_command(request))
     }
 }

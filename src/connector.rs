@@ -1,4 +1,4 @@
-//! Connector to the Redis server.
+//! Connector to a Redis server.
 //!
 //! For more information, see the [`Connector`](Connector) trait.
 
@@ -8,33 +8,26 @@ use std::net::SocketAddr;
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
 
-pub use async_trait::async_trait;
+use futures_core::future::BoxFuture;
 use tokio::io::{self, AsyncRead, AsyncWrite};
 #[cfg(unix)]
 use tokio::net::UnixStream;
 use tokio::net::{lookup_host, TcpStream};
 
-/// Connector to the Redis server.
+/// Connector to a Redis server.
 ///
-/// Redis server accepts connection in various way
+/// Redis servers accept connection in various way
 /// including TCP and Unix domain socket.
-/// A Connector has enough information to connect to certain Redis server
-/// and may produces multiple connections to it.
+/// A `Connector` should have enough information to connect to a certain Redis server
+/// and should be capable of producing multiple connections to it.
 ///
-/// It is used by the [`Client`](crate::Client) to make pooled connections.
-///
-/// ## Implement your own connector
-///
-/// This trait uses [`async_trait`](::async_trait) to abstract over async operation.
-/// At this point the rustdoc generates not-so-pretty document for it.
-/// If you haven't used it before, it would be better to check its own documentation first.
-#[async_trait]
+/// Used by the [`Client`](crate::Client) to make pooled connections.
 pub trait Connector: Send + Sync {
     /// Connection stream this connector produces.
     type Stream: AsyncRead + AsyncWrite + Debug + Unpin + Send;
 
     /// Connect to the Redis server and return the stream to it.
-    async fn connect(&self) -> io::Result<Self::Stream>;
+    fn connect(&self) -> BoxFuture<'_, io::Result<Self::Stream>>;
 }
 
 /// TCP socket connector.
@@ -62,12 +55,12 @@ pub enum LookupError {
 }
 
 impl TcpConnector {
-    /// Create TCP socket connector using IP address + port.
+    /// Constructs a `TcpConnector` using IP address and port.
     pub fn new(addr: SocketAddr) -> Self {
         TcpConnector { addr }
     }
 
-    /// Create TCP socket connector from address string
+    /// Constructs a `TcpConnector` from a string representation of a socket address
     /// like `example.com:8080`, `localhost:6379`, or `192.168.0.7:18080`.
     pub async fn lookup(addr: &str) -> Result<Self, LookupError> {
         let addr = lookup_host(addr)
@@ -78,18 +71,17 @@ impl TcpConnector {
     }
 }
 
-#[async_trait]
 impl Connector for TcpConnector {
     type Stream = TcpStream;
 
-    async fn connect(&self) -> io::Result<Self::Stream> {
-        Ok(TcpStream::connect(self.addr).await?)
+    fn connect(&self) -> BoxFuture<'_, io::Result<Self::Stream>> {
+        Box::pin(TcpStream::connect(self.addr))
     }
 }
 
 #[cfg(unix)]
 impl UnixConnector {
-    /// Create unix domain socket connector.
+    /// Constructs a `UnixConnector`.
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         UnixConnector {
             path: path.as_ref().to_owned(),
@@ -98,11 +90,10 @@ impl UnixConnector {
 }
 
 #[cfg(unix)]
-#[async_trait]
 impl Connector for UnixConnector {
     type Stream = UnixStream;
 
-    async fn connect(&self) -> io::Result<Self::Stream> {
-        Ok(UnixStream::connect(&self.path).await?)
+    fn connect(&self) -> BoxFuture<'_, io::Result<Self::Stream>> {
+        Box::pin(UnixStream::connect(&self.path))
     }
 }

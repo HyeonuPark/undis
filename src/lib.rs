@@ -1,9 +1,9 @@
 //! undis
 //! =======
 //!
-//! Undis is a serde-compatible redis library for Rust.
+//! `undis` is a serde-compatible Redis library for Rust.
 //!
-//! ## Making a query
+//! ## Sending a request
 //!
 //! For most use cases the [`Client`](crate::Client) is the only thing you need to know.
 //!
@@ -30,16 +30,15 @@
 //! # Ok(()) }
 //! ```
 //!
-//! ## Making a custom query
+//! ## Sending a custom request
 //!
-//! You may want to call some query which is not supported as a method.
-//! Please make a PR to this crate if you think it make sense,
-//! but you can still call it without merge.
+//! You may want to send some requests which are not supported as a method.
+//! This is possible using [`raw_command`](Client::raw_command).
 //!
 //! ```no_run
 //! # helper::with_client(|client| async move {
 //! # #[derive(serde::Deserialize)] struct MyStruct;
-//! let res: MyStruct = client.raw_command(("SOMECUSTOMCOMMAND", "ARG1", 42, "ARG2", "FOO")).await?;
+//! let res: MyStruct = client.raw_command(("CUSTOMCOMMAND", "ARG1", 42, "ARG2", "FOO")).await?;
 //! # Ok(())})?; Ok::<(), helper::BoxError>(())
 //! ```
 

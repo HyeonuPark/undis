@@ -8,19 +8,43 @@ Undis
 
 Undis is a serde-compatible redis library for Rust.
 
-## WIP
+## Sending a request
 
-This project is currently under heavy development. Use it at your own risk.
+For most use cases the `Client` is the only thing you need to know.
 
-## Todo
+```rust
+use undis::Client;
+use serde::{Serialize, Deserialize};
 
-- Add `#[deny(missing_docs)]`.
-- More command helper methods.
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct Table {
+    foo: String,
+    bar: i32,
+    baz: bool,
+}
+
+let client = Client::new(20, addr).await?;
+
+let value = Table { foo: "foo".into(), bar: 42, baz: true };
+client.hset("my-key", &value).await?;
+let fetched: Table = client.hmget("my-key").await?;
+
+assert_eq!(value, fetched);
+```
+
+## Sending a custom request
+
+You may want to send some requests which are not supported as a method.
+This is possible using `raw_command`.
+
+```rust
+let res: MyStruct = client.raw_command(("CUSTOMCOMMAND", "ARG1", 42, "ARG2", "FOO")).await?;
+```
+
+## Future topics
+
 - Pubsub.
 - Pipeline.
-
-## Future considerations
-
 - Separate the `resp3` module into its own crate, with better multi-crate project layout.
 - Redis server mock helper.
 - Full-featured Redis server implementation.

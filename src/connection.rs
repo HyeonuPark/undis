@@ -4,7 +4,7 @@
 
 use std::marker::Unpin;
 
-use async_trait::async_trait;
+use futures_core::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
 
@@ -12,8 +12,6 @@ use crate::command;
 use crate::resp3::{de, from_msg, ser_cmd, token, write_cmd, Reader, Value};
 
 /// A stateful connection to the Redis server.
-///
-/// To use helper methods on it, use [`.command()`](crate::command::RawCommandMut::command) method.
 #[derive(Debug)]
 pub struct Connection<T> {
     transport: T,
@@ -21,16 +19,16 @@ pub struct Connection<T> {
     receiver: ReceiveCtx,
 }
 
-/// A send-half of the connection.
-/// Can be used as a building block for higher abstraction.
+/// The sending-half of the connection.
+/// Can be used as a building block for higher abstractions.
 #[derive(Debug)]
 pub struct ConnectionSendHalf<T> {
     transport: WriteHalf<T>,
     sender: SendCtx,
 }
 
-/// A write-half of the connection.
-/// Can be used as a building block for higher abstraction.
+/// The receiving-half of the connection.
+/// Can be used as a building block for higher abstractions.
 #[derive(Debug)]
 pub struct ConnectionReceiveHalf<T> {
     transport: ReadHalf<T>,
@@ -47,7 +45,6 @@ struct SendCtx {
 struct ReceiveCtx {
     reader: Reader,
     count: u64,
-    last_is_push: bool,
 }
 
 /// Errors that occur when communicating with the Redis server.
@@ -71,7 +68,7 @@ pub enum ErrorKind {
     #[error("deserialize error")]
     Deserialize(#[from] de::Error),
     /// Invalid message order.
-    /// The client receives response from the server for the request haven't sent yet.
+    /// The client receives a response from the server for the request that hasn't been sent yet.
     #[error("invalid message order")]
     InvalidMessageOrder,
 }
@@ -79,14 +76,14 @@ pub enum ErrorKind {
 impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
     /// Connect to the Redis server using the `transport`.
     ///
-    /// When success, returns the `Connection` and `HELLO` command's response
-    /// as a [`Value`](crate::resp3::Value) which contains server's metadata.
+    /// On success, returns the `Connection` and `HELLO` command's response
+    /// as a [`Value`](crate::resp3::Value) which contains the server's metadata.
     pub async fn new(transport: T) -> Result<(Self, Value), Error> {
         Self::with_args(transport, None, None, None).await
     }
 
-    /// Connec to the Redis server using the `transport` and parameters.
-    /// See the [`Builder`](crate::client::Builder)'s methods for the usage of each parameters.
+    /// Connects to the Redis server using the `transport` and parameters.
+    /// See the [`Builder`](crate::client::Builder)'s methods for the usage of each parameter.
     pub async fn with_args(
         transport: T,
         auth: Option<(&str, &str)>,
@@ -102,7 +99,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
             receiver: ReceiveCtx {
                 reader: Reader::new(),
                 count: 0,
-                last_is_push: false,
             },
         };
 
@@ -117,32 +113,38 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         Ok((chan, resp))
     }
 
-    /// Send a command without waiting response.
+    /// Sends a command without waiting for a response.
     ///
-    /// Returns one-based index of the command sent from this connection.
+    /// Returns a one-based index of the command sent from this connection.
     pub async fn send<Req: Serialize>(&mut self, request: Req) -> Result<u64, Error> {
         self.sender.send(&mut self.transport, request).await
     }
 
-    /// Receive a response.
+    /// Wait until a response arrives.
     ///
-    /// Returns a received `Message` and
-    /// optional one-based index of the response received from this connection.
-    /// This index can be useful to match command and its corresponding response.
+    /// Returns an optional one-based index of the response arrived from this connection.
+    /// This index can be useful for matching a command and its corresponding response.
     ///
     /// The index is `None` for the [`Push`](crate::resp3::token::Token::Push) message
-    /// since it doesn't have corresponding command.
-    pub async fn receive(&mut self) -> Result<(token::Message<'_>, Option<u64>), Error> {
-        self.receiver.receive(&mut self.transport).await
+    /// since it does not have a corresponding command.
+    ///
+    /// It's guaranteed that `.message()` returns `Some(msg)` after this method returns `Ok(idx)`.
+    pub async fn wait_response(&mut self) -> Result<Option<u64>, Error> {
+        self.receiver.wait_response(&mut self.transport).await
     }
 
-    /// Send any command and get response of it.
+    /// Get the last response received.
+    pub fn response(&self) -> Option<token::Message<'_>> {
+        self.receiver.response()
+    }
+
+    /// Sends any command and get a response.
     ///
     /// Both command and response are serialized/deserialized using [`serde`](serde).
-    /// Check out the [serializer](crate::resp3::ser_cmd::CommandSerializer)
-    /// and [deserializer](crate::resp3::de::Deserializer) documents for details.
+    /// See [`CommandSerializer`](crate::resp3::ser_cmd::CommandSerializer)
+    /// and [`Deserializer`](crate::resp3::de::Deserializer) for details.
     ///
-    /// Returned response may contains a reference to the connection's internal receive buffer.
+    /// Returned response may contain a reference to the connection's internal receive buffer.
     pub async fn raw_command<'de, Req: Serialize, Resp: Deserialize<'de>>(
         &'de mut self,
         request: Req,
@@ -150,27 +152,25 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         let req_cnt = self.send(request).await?;
 
         loop {
-            let (_msg, resp_cnt) = self.receive().await?;
-            match resp_cnt {
+            match self.wait_response().await? {
                 // push message
                 None => continue,
                 // response from some previous request
                 // maybe due to the cancelation
                 Some(cnt) if cnt < req_cnt => continue,
-                // response from future request??
+                // response from a future request??
                 Some(cnt) if cnt > req_cnt => return Err(ErrorKind::InvalidMessageOrder.into()),
-                // respone from the very request
+                // response from the very request
                 Some(_) => break,
             }
         }
 
-        // at this point the receiver always store the non-push message
-        let (msg, _) = self.receiver.peek().unwrap();
-        Ok(from_msg(msg)?)
+        // at this point the receiver always stores the non-push message
+        Ok(from_msg(self.receiver.response().unwrap())?)
     }
 
-    /// Split the connection into read/write halves.
-    /// Can be used as a building block for higher abstraction.
+    /// Splits the connection into send/receive halves.
+    /// Can be used as a building block for higher abstractions.
     pub fn split(self) -> (ConnectionSendHalf<T>, ConnectionReceiveHalf<T>) {
         let (read, write) = tokio::io::split(self.transport);
         (
@@ -186,35 +186,37 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
     }
 }
 
-#[async_trait]
 impl<T: AsyncRead + AsyncWrite + Send + Unpin> command::RawCommandMut for Connection<T> {
-    async fn raw_command<'de, Req, Resp>(&'de mut self, request: Req) -> Result<Resp, Error>
+    fn raw_command<'de, Req, Resp>(
+        &'de mut self,
+        request: Req,
+    ) -> BoxFuture<'de, Result<Resp, Error>>
     where
-        Req: Serialize + Send,
-        Resp: Deserialize<'de>,
+        Req: Serialize + Send + 'de,
+        Resp: Deserialize<'de> + 'de,
     {
-        self.raw_command(request).await
+        Box::pin(self.raw_command(request))
     }
 }
 
 impl<T: AsyncWrite + Unpin> ConnectionSendHalf<T> {
-    /// Send a command without waiting response.
+    /// Sends a command without waiting for a response.
     ///
-    /// Returns one-based index of the command sent from this connection.
+    /// Returns a one-based index of the command sent from this connection.
     pub async fn send<Req: Serialize>(&mut self, request: Req) -> Result<u64, Error> {
         self.sender.send(&mut self.transport, request).await
     }
 
-    /// Check if two halves are from the same [`Connection`](Connection).
+    /// Checks if two halves are from the same [`Connection`](Connection).
     pub fn is_pair_of(&self, other: &ConnectionReceiveHalf<T>) -> bool {
         other.transport.is_pair_of(&self.transport)
     }
 
-    /// Merge previously split two halves back.
+    /// Merge two halves that have been split.
     ///
     /// # Panic
     ///
-    /// It panic if the `self` and the `other` are not from the same [`Connection`](Connection).
+    /// Panics if the `self` and the `other` are not from the same [`Connection`](Connection).
     pub fn unsplit(self, other: ConnectionReceiveHalf<T>) -> Connection<T> {
         let transport = other.transport.unsplit(self.transport);
 
@@ -227,16 +229,22 @@ impl<T: AsyncWrite + Unpin> ConnectionSendHalf<T> {
 }
 
 impl<T: AsyncRead + Unpin> ConnectionReceiveHalf<T> {
-    /// Receive a response.
+    /// Wait until a response arrives.
     ///
-    /// Returns a received `Message` and
-    /// optional one-based index of the response received from this connection.
-    /// This index can be useful to match command and its corresponding response.
+    /// Returns an optional one-based index of the response arrived from this connection.
+    /// This index can be useful for matching a command and its corresponding response.
     ///
     /// The index is `None` for the [`Push`](crate::resp3::token::Token::Push) message
-    /// since it doesn't have corresponding command.
-    pub async fn receive(&mut self) -> Result<(token::Message<'_>, Option<u64>), Error> {
-        self.receiver.receive(&mut self.transport).await
+    /// since it does not have a corresponding command.
+    ///
+    /// It's guaranteed that `.message()` returns `Some(msg)` after this method returns `Ok(idx)`.
+    pub async fn wait_response(&mut self) -> Result<Option<u64>, Error> {
+        self.receiver.wait_response(&mut self.transport).await
+    }
+
+    /// Get the last response received.
+    pub fn response(&self) -> Option<token::Message<'_>> {
+        self.receiver.response()
     }
 }
 
@@ -255,41 +263,31 @@ impl SendCtx {
 }
 
 impl ReceiveCtx {
-    async fn receive<T>(
-        &mut self,
-        transport: &mut T,
-    ) -> Result<(token::Message<'_>, Option<u64>), Error>
+    async fn wait_response<T>(&mut self, transport: &mut T) -> Result<Option<u64>, Error>
     where
         T: AsyncRead + Unpin,
     {
-        self.reader.consume();
-
-        while self.reader.read()?.is_none() {
+        while self.reader.message_not_ready()? {
             transport.read_buf(self.reader.buf()).await?;
         }
 
         // at this point the reader always stores the message
-        let msg = self.reader.peek().unwrap();
+        let msg = self.reader.message().unwrap();
 
         let count = match msg.head() {
             // server push message doesn't belong to the request-response mapping
-            token::Token::Push(_) => {
-                self.last_is_push = true;
-                None
-            }
+            token::Token::Push(_) => None,
             _ => {
-                self.last_is_push = false;
                 self.count += 1;
                 Some(self.count)
             }
         };
 
-        Ok((msg, count))
+        Ok(count)
     }
 
-    fn peek(&self) -> Option<(token::Message<'_>, Option<u64>)> {
-        let count = (!self.last_is_push).then(|| self.count);
-        self.reader.peek().map(|msg| (msg, count))
+    fn response(&self) -> Option<token::Message<'_>> {
+        self.reader.message()
     }
 }
 
