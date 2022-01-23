@@ -3,6 +3,12 @@ name = "undis"
 version = "0.1.0"
 authors = ["HyeonuPark <nemo1275@gmail.com>"]
 edition = "2021"
+keywords = ["redis", "database"]
+description = "serde-compatible redis library"
+categories = ["database"]
+repository = "https://github.com/HyeonuPark/undis"
+readme = "README.md"
+license = "MIT/Apache-2.0"
 
 [dependencies]
 async-channel = "1.6"
